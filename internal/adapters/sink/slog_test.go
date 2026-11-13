@@ -39,4 +39,13 @@ func TestSlogSinkEmitsJSON(t *testing.T) {
 	if got["path"] != "/secret" {
 		t.Errorf("path = %v, want /secret", got["path"])
 	}
+	if got["ua"] != "GPTBot/1.1" {
+		t.Errorf("ua = %v, want GPTBot/1.1", got["ua"])
+	}
+	if got["msg"] != "decision" {
+		t.Errorf("msg = %v, want decision", got["msg"])
+	}
+	if got["level"] != "INFO" {
+		t.Errorf("level = %v, want INFO", got["level"])
+	}
 }
