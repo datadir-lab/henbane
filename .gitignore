@@ -1,0 +1,6 @@
+/henbane
+/henbane.exe
+*.out
+/dist/
+.idea/
+.vscode/
