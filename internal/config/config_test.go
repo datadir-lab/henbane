@@ -154,3 +154,29 @@ func TestParseRejectsBadFlagTTL(t *testing.T) {
 		t.Fatal("expected error for invalid flag_ttl")
 	}
 }
+
+func TestParseLabyrinth(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "henbane.yaml")
+	if err := os.WriteFile(path, []byte("upstream: \"http://a:1\"\nlabyrinth:\n  links_per_page: 7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Parse([]string{"-config", path})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Labyrinth.LinksPerPage != 7 {
+		t.Errorf("links_per_page = %d, want 7", cfg.Labyrinth.LinksPerPage)
+	}
+}
+
+func TestParseRejectsNegativeLinks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "henbane.yaml")
+	if err := os.WriteFile(path, []byte("upstream: \"http://a:1\"\nlabyrinth:\n  links_per_page: -1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse([]string{"-config", path}); err == nil {
+		t.Fatal("expected error for negative links_per_page")
+	}
+}

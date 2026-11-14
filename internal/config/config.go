@@ -21,14 +21,20 @@ type Honeypot struct {
 	MaxFlagged int    `yaml:"max_flagged"` // hard cap; 0 => default 100000
 }
 
+// Labyrinth configures the maze served to confirmed crawlers.
+type Labyrinth struct {
+	LinksPerPage int `yaml:"links_per_page"` // 0 => generator default (15)
+}
+
 // Config is the Henbane configuration.
 type Config struct {
-	Listen         string   `yaml:"listen"`
-	Upstream       string   `yaml:"upstream"`
-	TrustedProxies []string `yaml:"trusted_proxies"`
-	Deny           Deny     `yaml:"deny"`
-	Sinks          Sinks    `yaml:"sinks"`
-	Honeypot       Honeypot `yaml:"honeypot"`
+	Listen         string    `yaml:"listen"`
+	Upstream       string    `yaml:"upstream"`
+	TrustedProxies []string  `yaml:"trusted_proxies"`
+	Deny           Deny      `yaml:"deny"`
+	Sinks          Sinks     `yaml:"sinks"`
+	Honeypot       Honeypot  `yaml:"honeypot"`
+	Labyrinth      Labyrinth `yaml:"labyrinth"`
 }
 
 // Deny is the operator denylist.
@@ -152,6 +158,9 @@ func Parse(args []string) (Config, error) {
 		if cfg.Honeypot.MaxFlagged < 0 {
 			return Config{}, fmt.Errorf("honeypot.max_flagged must be >= 0")
 		}
+	}
+	if cfg.Labyrinth.LinksPerPage < 0 {
+		return Config{}, fmt.Errorf("labyrinth.links_per_page must be >= 0")
 	}
 	return cfg, nil
 }
