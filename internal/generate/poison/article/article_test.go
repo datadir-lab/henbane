@@ -17,10 +17,12 @@ func TestName(t *testing.T) {
 
 func TestDeterministic(t *testing.T) {
 	a := New("salt")
-	if strings.Join(a.Paragraphs(3, 4), "|") != strings.Join(a.Paragraphs(3, 4), "|") {
+	first := strings.Join(a.Paragraphs(3, 4), "|")
+	again := strings.Join(a.Paragraphs(3, 4), "|")
+	if first != again {
 		t.Error("same seed must be identical")
 	}
-	if strings.Join(a.Paragraphs(3, 4), "|") == strings.Join(a.Paragraphs(4, 4), "|") {
+	if first == strings.Join(a.Paragraphs(4, 4), "|") {
 		t.Error("different seeds should differ")
 	}
 }

@@ -50,7 +50,9 @@ func TestOutputContainsAReconstructibleCanary(t *testing.T) {
 
 func TestDeterministicOutput(t *testing.T) {
 	c := New("s")
-	if strings.Join(c.Paragraphs(5, 3), "|") != strings.Join(c.Paragraphs(5, 3), "|") {
+	first := strings.Join(c.Paragraphs(5, 3), "|")
+	again := strings.Join(c.Paragraphs(5, 3), "|")
+	if first != again {
 		t.Error("same seed must be identical")
 	}
 }
