@@ -230,6 +230,51 @@ func TestPoWChallengeAllServesInterstitial(t *testing.T) {
 	}
 }
 
+func TestPoWSuspectModeChallengesSpoofedBrowser(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "upstream body")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Upstream: upstream.URL, PoW: config.PoW{Mode: "suspect", DifficultyBits: 8}}
+	h, err := newHandler(cfg, logger, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	const chromeUA = "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36"
+
+	get := func(ua, secFetch string) (int, string) {
+		req, _ := http.NewRequest(http.MethodGet, front.URL+"/page", nil)
+		req.Header.Set("User-Agent", ua)
+		if secFetch != "" {
+			req.Header.Set("Sec-Fetch-Site", secFetch)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode, string(b)
+	}
+
+	// Spoofed browser (Chrome UA, no Sec-Fetch-Site) → challenged.
+	if code, body := get(chromeUA, ""); code != http.StatusOK || !strings.Contains(body, "Checking your browser") {
+		t.Errorf("spoofed browser: status=%d, want the challenge page", code)
+	}
+	// Real browser (sends Sec-Fetch-Site) → passes through.
+	if _, body := get(chromeUA, "none"); body != "upstream body" {
+		t.Errorf("real browser: body=%q, want upstream body", body)
+	}
+	// Plain non-browser client (curl) → not flagged, passes through.
+	if _, body := get("curl/8", ""); body != "upstream body" {
+		t.Errorf("curl: body=%q, want upstream body (non-browser must not be challenged)", body)
+	}
+}
+
 func TestPoWOffPassesThrough(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "upstream body")
