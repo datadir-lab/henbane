@@ -2,6 +2,7 @@
 package proxy
 
 import (
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -34,16 +35,25 @@ func (v requestView) Header(name string) string { return v.r.Header.Get(name) }
 type Handler struct {
 	engine ports.Engine
 	sinks  []ports.Sink
+	logger *slog.Logger
 	rp     *httputil.ReverseProxy
 }
 
 // New builds a Handler proxying to upstream, consulting engine and fanning
-// events to sinks.
-func New(upstream *url.URL, engine ports.Engine, sinks []ports.Sink) *Handler {
+// events to sinks. Upstream transport errors are routed through logger
+// (structured) instead of the stdlib default logger.
+func New(upstream *url.URL, engine ports.Engine, sinks []ports.Sink, logger *slog.Logger) *Handler {
+	rp := httputil.NewSingleHostReverseProxy(upstream)
+	rp.ErrorLog = slog.NewLogLogger(logger.Handler(), slog.LevelError)
+	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		logger.Error("upstream proxy error", "err", err, "path", r.URL.Path)
+		w.WriteHeader(http.StatusBadGateway)
+	}
 	return &Handler{
 		engine: engine,
 		sinks:  sinks,
-		rp:     httputil.NewSingleHostReverseProxy(upstream),
+		logger: logger,
+		rp:     rp,
 	}
 }
 
@@ -58,8 +68,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case ports.ActionAllow:
 		h.rp.ServeHTTP(w, r)
 	default:
-		// Slice 0 implements only ActionAllow; other actions arrive in later slices.
-		h.rp.ServeHTTP(w, r)
+		// Fail closed. Only ActionAllow proxies to the upstream. Later slices
+		// add explicit cases for challenge/tarpit/poison/block; until an action
+		// has a handler, it must NOT silently pass traffic through — a bug that
+		// left the engine returning a non-allow verdict here would otherwise
+		// fail *open*. Respond 500 rather than serve the upstream.
+		h.logger.Error("unhandled verdict action; failing closed",
+			"action", verdict.Action.String(),
+			"tier", verdict.Tier.String(),
+			"path", r.URL.Path)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
 }
 
