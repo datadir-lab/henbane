@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/henbane-sh/henbane/internal/config"
@@ -108,22 +109,24 @@ func TestNewHandlerHoneypotFlagsClient(t *testing.T) {
 			t.Fatalf("pre-trap body = %q, want upstream body", string(b))
 		}
 	}
-	// Trip the trap → 403.
+	// Trip the trap → maze (200 html), not the upstream.
 	trapResp, err := http.Get(front.URL + "/trap/anything")
 	if err != nil {
 		t.Fatal(err)
 	}
+	trapBody, _ := io.ReadAll(trapResp.Body)
 	trapResp.Body.Close()
-	if trapResp.StatusCode != http.StatusForbidden {
-		t.Errorf("trap status = %d, want 403", trapResp.StatusCode)
+	if trapResp.StatusCode != http.StatusOK || !strings.Contains(string(trapBody), "href=") {
+		t.Errorf("trap: status=%d body=%q, want 200 maze", trapResp.StatusCode, string(trapBody))
 	}
-	// Now the same client is flagged → a NORMAL request is also 403.
+	// Flagged client's normal request is also mazed (200 html, not upstream body).
 	after, err := http.Get(front.URL + "/ok")
 	if err != nil {
 		t.Fatal(err)
 	}
+	afterBody, _ := io.ReadAll(after.Body)
 	after.Body.Close()
-	if after.StatusCode != http.StatusForbidden {
-		t.Errorf("post-trap normal status = %d, want 403 (client flagged)", after.StatusCode)
+	if after.StatusCode != http.StatusOK || string(afterBody) == "upstream body" || !strings.Contains(string(afterBody), "href=") {
+		t.Errorf("post-trap: status=%d body=%q, want 200 maze", after.StatusCode, string(afterBody))
 	}
 }

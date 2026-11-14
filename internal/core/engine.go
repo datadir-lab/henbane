@@ -50,13 +50,18 @@ func (e *Engine) Decide(ctx context.Context, r ports.RequestView) (ports.Verdict
 	return v, []ports.Event{ev}
 }
 
-// actionForTier maps a tier to its action. Interim: anything above Pass blocks,
-// until later slices add challenge (Suspect) and tarpit/poison (Confirmed).
+// actionForTier maps a tier to its action. Confirmed clients are detained in the
+// labyrinth (Tarpit); denylisted/blocked clients get a 403. Suspect is interim
+// Block until a later slice adds a challenge.
 func actionForTier(t ports.Tier) ports.Action {
-	if t == ports.TierPass {
+	switch t {
+	case ports.TierPass:
 		return ports.ActionAllow
+	case ports.TierConfirmed:
+		return ports.ActionTarpit
+	default:
+		return ports.ActionBlock
 	}
-	return ports.ActionBlock
 }
 
 var _ ports.Engine = (*Engine)(nil)

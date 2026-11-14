@@ -59,6 +59,14 @@ func TestDecideAllowsWhenNoneFire(t *testing.T) {
 	}
 }
 
+func TestDecideConfirmedTarpits(t *testing.T) {
+	e := NewEngine(fakeDet{res: ports.Result{Signal: "honeypot", Tier: ports.TierConfirmed}, fired: true})
+	v, _ := e.Decide(context.Background(), fakeView{})
+	if v.Action != ports.ActionTarpit || v.Tier != ports.TierConfirmed {
+		t.Errorf("verdict = %+v, want tarpit/confirmed", v)
+	}
+}
+
 func TestDecideKeepsHighestTierRegardlessOfOrder(t *testing.T) {
 	// Higher tier fires FIRST, lower SECOND: the max-accumulator must not
 	// downgrade to the later, lower tier.

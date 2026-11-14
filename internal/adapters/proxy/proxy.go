@@ -74,7 +74,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error("labyrinth write failed", "err", err, "path", r.URL.Path)
 		}
 	default:
-		// Fail closed: actions without a handler yet (challenge/tarpit/poison,
+		// Fail closed: actions without a handler yet (challenge/poison,
 		// added in later slices) must NOT pass traffic through.
 		h.logger.Error("unhandled verdict action; failing closed",
 			"action", verdict.Action.String(),
