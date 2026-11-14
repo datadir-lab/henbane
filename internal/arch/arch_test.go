@@ -32,6 +32,7 @@ func TestCorePurity(t *testing.T) {
 		mainModule + "/internal/flagstore",
 		mainModule + "/internal/detect/denylist",
 		mainModule + "/internal/detect/honeypot",
+		mainModule + "/internal/detect/browserhint",
 		mainModule + "/internal/generate/labyrinth",
 		mainModule + "/internal/generate/poison",
 		mainModule + "/internal/generate/poison/babble",
