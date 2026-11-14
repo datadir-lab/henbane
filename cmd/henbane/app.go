@@ -15,6 +15,7 @@ import (
 	"github.com/datadir-lab/henbane/internal/clientip"
 	"github.com/datadir-lab/henbane/internal/config"
 	"github.com/datadir-lab/henbane/internal/core"
+	"github.com/datadir-lab/henbane/internal/detect/browserhint"
 	"github.com/datadir-lab/henbane/internal/detect/denylist"
 	"github.com/datadir-lab/henbane/internal/detect/honeypot"
 	"github.com/datadir-lab/henbane/internal/flagstore"
@@ -66,6 +67,13 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 			max = 100000
 		}
 		detectors = append(detectors, honeypot.New(cfg.Honeypot.Path, flagstore.New(max, ttl)))
+	}
+
+	// In suspect mode the browser-hint signal is what populates the Suspect tier
+	// (→ challenge). Under "all" everyone is already challenged; under "off" a
+	// Suspect verdict has no handler, so the signal stays disabled.
+	if cfg.PoW.Mode == "suspect" {
+		detectors = append(detectors, browserhint.New())
 	}
 
 	engine := core.NewEngine(detectors...)
