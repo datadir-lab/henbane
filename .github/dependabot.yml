@@ -20,9 +20,8 @@ updates:
       prefix: build
     open-pull-requests-limit: 5
 
-  # GitHub Actions versions are also enforced by .github/workflows/actions.lock
-  # (gh actions-lock). Dependabot proposes the human-readable tag bumps; the
-  # lockfile is regenerated when the bump is accepted.
+  # GitHub Actions are pinned to commit SHAs in the workflows; Dependabot proposes
+  # SHA bumps (updating the trailing version comment too).
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
