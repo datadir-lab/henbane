@@ -32,8 +32,14 @@ approximation. Nothing here is imported by or shipped with the gateway.
 python -m venv research/.venv
 research/.venv/Scripts/pip install -r research/requirements.txt   # (Scripts\ on Windows, bin/ on POSIX)
 go run ./research/emit -n 300 -out research/data/samples.jsonl
+go run ./research/emit -n 500 -sites 25 -salt deploy -out research/data/multisite.jsonl  # federation analysis
 research/.venv/Scripts/python research/study.py
 ```
+
+`study.py` runs the single-site funnel plus, if `multisite.jsonl` exists, the
+**federation analysis** (does poison from many sites add up, or does cross-site
+dedup collapse it?). See also [TECHNIQUES.md](TECHNIQUES.md) — a survey of non-LLM
+ways to improve filter survival.
 
 Reference corpora in `data/` are public-domain Project Gutenberg texts (the
 perplexity model trains on a *different* set of books than the baseline, so the

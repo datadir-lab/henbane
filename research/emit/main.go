@@ -1,9 +1,12 @@
 // Command emit generates sample documents for the poison-survival study: the real
 // maze-page HTML that each poison strategy produces, plus a real-text baseline, as
-// JSON Lines ({"strategy","id","html"}). It is research tooling, not part of the
-// shipped gateway. Run from the repo root:
+// JSON Lines ({"strategy","site","id","html"}). With -sites > 1 it simulates that
+// many Henbane deployments, each with a distinct per-deployment salt, so the study
+// can measure cross-site near-duplicate survival (the federation question). It is
+// research tooling, not part of the shipped gateway. Run from the repo root:
 //
-//	go run ./research/emit -n 300 -paragraphs 12 -reference research/data/reference.txt -out research/data/samples.jsonl
+//	go run ./research/emit -n 300 -out research/data/samples.jsonl
+//	go run ./research/emit -n 500 -sites 25 -salt deploy -out research/data/multisite.jsonl
 package main
 
 import (
@@ -23,14 +26,31 @@ import (
 
 type doc struct {
 	Strategy string `json:"strategy"`
+	Site     string `json:"site,omitempty"`
 	ID       string `json:"id"`
 	HTML     string `json:"html"`
+}
+
+var strategyNames = []string{"babble", "article", "canary"}
+
+func poisonerFor(name, salt string) ports.Poisoner {
+	switch name {
+	case "babble":
+		return babble.New(nil, salt)
+	case "article":
+		return article.New(salt)
+	case "canary":
+		return canary.New(salt)
+	}
+	return nil
 }
 
 func main() {
 	n := flag.Int("n", 300, "documents per strategy")
 	paragraphs := flag.Int("paragraphs", 12, "poison paragraphs per maze page")
 	links := flag.Int("links", 15, "links per maze page")
+	sites := flag.Int("sites", 1, "simulated deployments (each a distinct salt); >1 omits the baseline")
+	baseSalt := flag.String("salt", "study", "salt prefix; per-site salt is <salt>-<i>")
 	refPath := flag.String("reference", "research/data/reference.txt", "real-text baseline corpus")
 	outPath := flag.String("out", "research/data/samples.jsonl", "output JSONL path")
 	flag.Parse()
@@ -45,31 +65,46 @@ func main() {
 	defer w.Flush()
 	enc := json.NewEncoder(w)
 
-	const salt = "study"
-	strategies := map[string]ports.Poisoner{
-		"babble":  babble.New(nil, salt),
-		"article": article.New(salt),
-		"canary":  canary.New(salt),
+	emitPage := func(name, site, id string, gen *labyrinth.Generator) {
+		var b strings.Builder
+		if err := gen.WritePage(&b, "/p/"+id); err != nil {
+			fmt.Fprintln(os.Stderr, "write page:", err)
+			os.Exit(1)
+		}
+		if err := enc.Encode(doc{Strategy: name, Site: site, ID: name + "-" + id, HTML: b.String()}); err != nil {
+			fmt.Fprintln(os.Stderr, "encode:", err)
+			os.Exit(1)
+		}
 	}
-	// Deterministic order for reproducibility.
-	for _, name := range []string{"babble", "article", "canary"} {
-		gen := labyrinth.New(*links, strategies[name], *paragraphs)
-		for i := 0; i < *n; i++ {
-			var b strings.Builder
-			if err := gen.WritePage(&b, fmt.Sprintf("/p/%d", i)); err != nil {
-				fmt.Fprintln(os.Stderr, "write page:", err)
-				os.Exit(1)
+
+	for _, name := range strategyNames {
+		if *sites <= 1 {
+			gen := labyrinth.New(*links, poisonerFor(name, *baseSalt), *paragraphs)
+			for i := 0; i < *n; i++ {
+				emitPage(name, "", fmt.Sprint(i), gen)
 			}
-			if err := enc.Encode(doc{Strategy: name, ID: fmt.Sprintf("%s-%d", name, i), HTML: b.String()}); err != nil {
-				fmt.Fprintln(os.Stderr, "encode:", err)
-				os.Exit(1)
+			continue
+		}
+		perSite := *n / *sites
+		if perSite < 1 {
+			perSite = 1
+		}
+		for s := 0; s < *sites; s++ {
+			salt := fmt.Sprintf("%s-%d", *baseSalt, s)
+			gen := labyrinth.New(*links, poisonerFor(name, salt), *paragraphs)
+			site := fmt.Sprintf("s%d", s)
+			for i := 0; i < perSite; i++ {
+				emitPage(name, site, fmt.Sprintf("%d-%d", s, i), gen)
 			}
 		}
 	}
 
-	if err := emitBaseline(enc, *refPath, *n, *paragraphs); err != nil {
-		fmt.Fprintln(os.Stderr, "baseline:", err)
-		os.Exit(1)
+	// The baseline is site-agnostic; only emit it in single-site mode.
+	if *sites <= 1 {
+		if err := emitBaseline(enc, *refPath, *n, *paragraphs); err != nil {
+			fmt.Fprintln(os.Stderr, "baseline:", err)
+			os.Exit(1)
+		}
 	}
 }
 
@@ -85,15 +120,13 @@ func emitBaseline(enc *json.Encoder, refPath string, n, paragraphs int) error {
 	if len(paras) == 0 {
 		return nil
 	}
-	perDoc := paragraphs
 	for i := 0; i < n; i++ {
-		start := (i * perDoc) % len(paras)
+		start := (i * paragraphs) % len(paras)
 		var body strings.Builder
 		body.WriteString("<!doctype html><html><head><title>Article</title></head><body><article>")
 		body.WriteString("<h1>" + htmlEscape(firstWords(paras[start], 6)) + "</h1>")
-		for j := 0; j < perDoc; j++ {
-			p := paras[(start+j)%len(paras)]
-			body.WriteString("<p>" + htmlEscape(p) + "</p>")
+		for j := 0; j < paragraphs; j++ {
+			body.WriteString("<p>" + htmlEscape(paras[(start+j)%len(paras)]) + "</p>")
 		}
 		body.WriteString("</article></body></html>")
 		if err := enc.Encode(doc{Strategy: "baseline_real", ID: fmt.Sprintf("baseline-%d", i), HTML: body.String()}); err != nil {
@@ -124,6 +157,5 @@ func firstWords(s string, n int) string {
 }
 
 func htmlEscape(s string) string {
-	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
-	return r.Replace(s)
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
 }

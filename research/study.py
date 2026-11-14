@@ -207,7 +207,100 @@ def main():
     plot_funnel(rows)
     plot_perplexity(ppls, ppl_cut)
     plot_final_survival(rows)
+    multisite()
     print("study complete; figures in research/figures/, report in research/STUDY.md")
+
+
+def multisite():
+    """Federation analysis: does poison from many Henbane sites add up, or does
+    cross-site near-duplicate dedup collapse it? Compares salted deployments (each
+    a distinct per-site salt, as Henbane ships) against identical un-salted sites.
+    Requires research/data/multisite.jsonl (see research/README.md)."""
+    path = DATA / "multisite.jsonl"
+    if not path.exists():
+        return
+    by = collections.defaultdict(lambda: collections.defaultdict(list))
+    for line in open(path, encoding="utf-8"):
+        d = json.loads(line)
+        by[d["strategy"]][d["site"]].append(extract_text(d["html"]))
+    try:
+        from datasketch import MinHash, MinHashLSH
+    except Exception:
+        return
+    strategies = ["babble", "article", "canary"]
+    sites = sorted({s for st in by.values() for s in st}, key=lambda x: int(x[1:]))
+    M = len(sites)
+    ks = list(range(1, M + 1))
+
+    def mh(text):
+        m = MinHash(num_perm=64)
+        toks = tokens(text)
+        for j in range(len(toks) - 4):
+            m.update(" ".join(toks[j:j + 5]).encode())
+        return m
+
+    def survivors_in(texts):  # dedup a single list
+        lsh = MinHashLSH(threshold=0.7, num_perm=64)
+        k = 0
+        for i, t in enumerate(texts):
+            m = mh(t)
+            if not lsh.query(m):
+                lsh.insert(str(i), m)
+                k += 1
+        return k
+
+    plt.figure(figsize=(9, 5.4))
+    salted_final = {}
+    for s in strategies:
+        lsh = MinHashLSH(threshold=0.7, num_perm=64)  # add sites incrementally
+        y, kept, idx = [], 0, 0
+        for site in sites:
+            for t in by[s][site]:
+                m = mh(t)
+                if not lsh.query(m):
+                    lsh.insert(str(idx), m)
+                    kept += 1
+                idx += 1
+            y.append(kept)
+        salted_final[s] = y[-1]
+        plt.plot(ks, y, marker="o", color=COLORS[s], label=f"{LABELS[s]} — salted")
+    # Un-salted reference: identical sites collapse to one site's worth; adding more
+    # sites adds zero new uniques.
+    base = survivors_in(by["article"][sites[0]])
+    same = [base] * M
+    plt.plot(ks, same, "--", color="#888", linewidth=2, label="no per-site salt (identical sites)")
+    plt.xlabel("participating sites")
+    plt.ylabel("unique poison docs surviving cross-site dedup")
+    plt.title("Federation: per-deployment salt makes sites add up")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(FIGS / "multisite_federation.png", dpi=150)
+    plt.close()
+
+    per_site = len(by["article"][sites[0]])
+    with open(ROOT / "STUDY.md", "a", encoding="utf-8") as f:
+        f.write(
+            "\n## Federation: does multi-site poison add up?\n\n"
+            f"Simulating **{M} Henbane deployments** ({per_site} docs each), pooled and "
+            "run through cross-site MinHash dedup. The question the "
+            "[strategy](../docs/STRATEGY.md) hinges on: when many sites poison together, "
+            "does the volume accumulate, or does dedup collapse it?\n\n"
+            "![federation](figures/multisite_federation.png)\n\n"
+            "- **With Henbane's per-deployment salt, it accumulates.** Each site's output "
+            "is distinct, so the surviving-after-dedup count grows roughly linearly with "
+            f"the number of sites (article: {salted_final['article']} unique docs across "
+            f"{M} sites).\n"
+            "- **Without a per-site salt, it collapses.** Identical sites dedup down to one "
+            f"site's worth (flat dashed line, ~{same[-1]} docs no matter how many sites). "
+            "This is *why* the generators mix a per-deployment salt into their seed.\n"
+            "- **Honest caveat.** Because single-site poison is filtered by perplexity "
+            "(above), cross-site *volume* only reaches a model if poison fluency improves "
+            "first (see techniques below). The federation benefit that is **real today** is "
+            "cumulative *tarpit cost*: every site independently burns the crawler's "
+            "bandwidth and compute, and that scales linearly with the number of sites — "
+            "no dedup can collapse wasted fetch work.\n"
+        )
 
 
 STAGES = ["n", "extraction", "gopher", "c4", "perplexity", "dedup"]

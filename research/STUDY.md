@@ -45,3 +45,12 @@ Perplexity cutoff (calibrated): **618**.
 ---
 
 Regenerate with the commands at the top of `research/study.py`. Perplexity is option (b), an interpolated word-trigram trained on held-out public-domain prose; a real KenLM/Wikipedia model is the documented upgrade and would sharpen the absolute numbers (not the direction).
+## Federation: does multi-site poison add up?
+
+Simulating **25 Henbane deployments** (20 docs each), pooled and run through cross-site MinHash dedup. The question the [strategy](../docs/STRATEGY.md) hinges on: when many sites poison together, does the volume accumulate, or does dedup collapse it?
+
+![federation](figures/multisite_federation.png)
+
+- **With Henbane's per-deployment salt, it accumulates.** Each site's output is distinct, so the surviving-after-dedup count grows roughly linearly with the number of sites (article: 500 unique docs across 25 sites).
+- **Without a per-site salt, it collapses.** Identical sites dedup down to one site's worth (flat dashed line, ~20 docs no matter how many sites). This is *why* the generators mix a per-deployment salt into their seed.
+- **Honest caveat.** Because single-site poison is filtered by perplexity (above), cross-site *volume* only reaches a model if poison fluency improves first (see techniques below). The federation benefit that is **real today** is cumulative *tarpit cost*: every site independently burns the crawler's bandwidth and compute, and that scales linearly with the number of sites — no dedup can collapse wasted fetch work.
