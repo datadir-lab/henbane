@@ -26,7 +26,13 @@ func pkgInfo(t *testing.T, importPath string) listPkg {
 }
 
 func TestCorePurity(t *testing.T) {
-	targets := []string{mainModule + "/internal/ports", mainModule + "/internal/core"}
+	targets := []string{
+		mainModule + "/internal/ports",
+		mainModule + "/internal/core",
+		mainModule + "/internal/flagstore",
+		mainModule + "/internal/detect/denylist",
+		mainModule + "/internal/detect/honeypot",
+	}
 
 	for _, target := range targets {
 		info := pkgInfo(t, target)
