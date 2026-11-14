@@ -30,3 +30,21 @@ func TestTierString(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectorInterfaceShape(t *testing.T) {
+	// Compile-time: a minimal detector satisfies the interface and Result holds
+	// a signal + tier.
+	var d Detector = fakeDet{}
+	res, ok := d.Inspect(nil)
+	if ok || res.Signal != "" || res.Tier != TierPass {
+		t.Errorf("zero detector = %+v, %v", res, ok)
+	}
+	if d.Name() != "fake" {
+		t.Errorf("name = %q", d.Name())
+	}
+}
+
+type fakeDet struct{}
+
+func (fakeDet) Name() string                       { return "fake" }
+func (fakeDet) Inspect(RequestView) (Result, bool) { return Result{}, false }

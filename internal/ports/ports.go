@@ -104,3 +104,17 @@ type Sink interface {
 type Engine interface {
 	Decide(ctx context.Context, r RequestView) (Verdict, []Event)
 }
+
+// Result is what a Detector returns when it fires.
+type Result struct {
+	Signal Signal
+	Tier   Tier
+}
+
+// Detector inspects a request and may fire with a Signal and the Tier it
+// implies. Detectors may hold state and have side effects (e.g. a honeypot
+// flagging a client). Name identifies the detector for logging/config.
+type Detector interface {
+	Name() string
+	Inspect(r RequestView) (Result, bool)
+}
