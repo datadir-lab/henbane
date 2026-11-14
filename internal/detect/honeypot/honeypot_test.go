@@ -58,7 +58,10 @@ func TestNormalRequestDoesNotFire(t *testing.T) {
 func TestInvalidIPNotFlagged(t *testing.T) {
 	store := memStore{}
 	d := New("/.well-known/hb-trap", store)
-	d.Inspect(view{ip: netip.Addr{}, path: "/.well-known/hb-trap/x"})
+	res, ok := d.Inspect(view{ip: netip.Addr{}, path: "/.well-known/hb-trap/x"})
+	if !ok || res.Signal != "honeypot" || res.Tier != ports.TierConfirmed {
+		t.Errorf("trap must still fire for an invalid IP: res=%+v ok=%v", res, ok)
+	}
 	if store.Flagged(netip.Addr{}) {
 		t.Error("invalid IP must not be flagged")
 	}
