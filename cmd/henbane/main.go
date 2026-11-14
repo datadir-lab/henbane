@@ -15,6 +15,10 @@ import (
 )
 
 func main() {
+	if maybePrintVersion(os.Args[1:], os.Stdout) {
+		return
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	cfg, err := config.Parse(os.Args[1:])
@@ -70,7 +74,7 @@ func serve(cfg config.Config, h http.Handler, logger *slog.Logger) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("henbane starting", "listen", cfg.Listen, "upstream", cfg.Upstream)
+		logger.Info("henbane starting", "version", version, "listen", cfg.Listen, "upstream", cfg.Upstream)
 		err := srv.ListenAndServe()
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
