@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/henbane-sh/henbane/internal/clientip"
@@ -31,6 +32,14 @@ func (e fakeEngine) Decide(_ context.Context, _ ports.RequestView) (ports.Verdic
 	return e.verdict, e.events
 }
 
+type fakeMaze struct{ hits int }
+
+func (m *fakeMaze) WritePage(w io.Writer, path string) error {
+	m.hits++
+	_, err := io.WriteString(w, "<html>maze:"+path+"</html>")
+	return err
+}
+
 func TestProxyForwardsAndEmits(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "hello upstream")
@@ -42,7 +51,7 @@ func TestProxyForwardsAndEmits(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := &recordingSink{}
-	h := New(u, core.NewEngine(), []ports.Sink{rs}, discardLogger(), clientip.NewResolver(nil))
+	h := New(u, core.NewEngine(), []ports.Sink{rs}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{})
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/page", nil)
 	req.Header.Set("User-Agent", "curl/8")
@@ -72,7 +81,7 @@ func TestProxyFailsClosedOnNonAllow(t *testing.T) {
 	// ActionChallenge has no explicit case yet (added in a later slice); it
 	// must fall through to the fail-closed default, not pass traffic through.
 	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionChallenge, Tier: ports.TierSuspect}}
-	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil))
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/x", nil))
@@ -95,7 +104,7 @@ func TestProxyFansOutEveryEventToEverySink(t *testing.T) {
 		events:  []ports.Event{{Path: "/a"}, {Path: "/b"}},
 	}
 	s1, s2 := &recordingSink{}, &recordingSink{}
-	h := New(u, eng, []ports.Sink{s1, s2}, discardLogger(), clientip.NewResolver(nil))
+	h := New(u, eng, []ports.Sink{s1, s2}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{})
 
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.com/", nil))
 
@@ -111,7 +120,7 @@ func TestProxyBlocksReturns403(t *testing.T) {
 	u, _ := url.Parse(upstream.URL)
 
 	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionBlock, Tier: ports.TierBlocked}}
-	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil))
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/x", nil))
@@ -121,6 +130,36 @@ func TestProxyBlocksReturns403(t *testing.T) {
 	}
 	if hit {
 		t.Error("upstream called for a blocked request")
+	}
+}
+
+func TestProxyTarpitServesMaze(t *testing.T) {
+	hit := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hit = true }))
+	defer upstream.Close()
+	u, _ := url.Parse(upstream.URL)
+
+	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionTarpit, Tier: ports.TierConfirmed}}
+	maze := &fakeMaze{}
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), maze)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/trap/x", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("content-type = %q, want text/html; charset=utf-8", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "maze:/trap/x") {
+		t.Errorf("body = %q, want maze content", rec.Body.String())
+	}
+	if maze.hits != 1 {
+		t.Errorf("maze writer hits = %d, want 1", maze.hits)
+	}
+	if hit {
+		t.Error("upstream must not be hit for a tarpit verdict")
 	}
 }
 

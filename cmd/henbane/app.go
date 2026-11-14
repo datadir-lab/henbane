@@ -15,6 +15,7 @@ import (
 	"github.com/henbane-sh/henbane/internal/detect/denylist"
 	"github.com/henbane-sh/henbane/internal/detect/honeypot"
 	"github.com/henbane-sh/henbane/internal/flagstore"
+	"github.com/henbane-sh/henbane/internal/generate/labyrinth"
 	"github.com/henbane-sh/henbane/internal/ports"
 )
 
@@ -67,5 +68,6 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 		sinks = append(sinks, sink.NewFail2banSink(fail2banW))
 	}
 
-	return proxy.New(upstream, engine, sinks, logger, resolver), nil
+	maze := labyrinth.New(cfg.Labyrinth.LinksPerPage)
+	return proxy.New(upstream, engine, sinks, logger, resolver, maze), nil
 }
