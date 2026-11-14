@@ -61,7 +61,8 @@ func serve(cfg config.Config, h http.Handler, logger *slog.Logger) error {
 		// hold connections open indefinitely; MaxHeaderBytes caps header size
 		// (and therefore X-Forwarded-For length). ReadTimeout/WriteTimeout are
 		// deliberately left unset so proxying large uploads or streaming
-		// responses is not cut off.
+		// responses is not cut off — slow request *bodies* are therefore not
+		// time-bounded here by design and are expected to be constrained upstream.
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20, // 1 MiB

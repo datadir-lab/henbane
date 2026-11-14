@@ -106,6 +106,9 @@ func Parse(args []string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	// Reject a literal default route (/0), the common footgun that trusts every
+	// client. This does NOT catch equivalent broad unions (e.g. 0.0.0.0/1 +
+	// 128.0.0.0/1); avoiding those remains the operator's responsibility.
 	for _, p := range tp {
 		if p.Bits() == 0 {
 			return Config{}, fmt.Errorf("trusted_proxies %q is too broad: trusting all addresses re-enables X-Forwarded-For spoofing", p)
