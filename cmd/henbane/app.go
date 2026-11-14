@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/datadir-lab/henbane/internal/adapters/challenge"
 	"github.com/datadir-lab/henbane/internal/adapters/proxy"
@@ -94,7 +95,38 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 	if err != nil {
 		return nil, err
 	}
-	return proxy.New(upstream, engine, sinks, logger, resolver, maze, pw, buildBomb(cfg, poisoner)), nil
+	var handler http.Handler = proxy.New(upstream, engine, sinks, logger, resolver, maze, pw, buildBomb(cfg, poisoner))
+	if cfg.Robots.Serve {
+		handler = withRobots(buildRobots(cfg), handler)
+	}
+	return handler, nil
+}
+
+// buildRobots renders the robots.txt body: Disallow the honeypot trap (so
+// well-behaved crawlers avoid it, and any client that fetches it is provably
+// ignoring robots.txt) plus any operator-configured paths.
+func buildRobots(cfg config.Config) string {
+	var b strings.Builder
+	b.WriteString("User-agent: *\n")
+	if cfg.Honeypot.Enabled && cfg.Honeypot.Path != "" {
+		b.WriteString("Disallow: " + cfg.Honeypot.Path + "\n")
+	}
+	for _, p := range cfg.Robots.Disallow {
+		b.WriteString("Disallow: " + p + "\n")
+	}
+	return b.String()
+}
+
+// withRobots serves body at /robots.txt and delegates everything else to next.
+func withRobots(body string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = io.WriteString(w, body)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // buildBomb constructs the decompression-bomb response from config, reusing the

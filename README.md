@@ -35,7 +35,9 @@ Every request is classified into a tier, and the tier picks an action.
 | `Confirmed` | tripped a honeypot trap | **Tarpit** | `200`, a labyrinth maze page with poison text, no ban |
 | `Blocked` | on a denylist (IP or UA) | **Block** | `403`, plus a fail2ban ban line if configured |
 
-The split is deliberate. A denylisted actor is banished (403 and fail2ban). A honeypot-confirmed crawler is detained instead: the aim is to keep it crawling the maze and spending its own budget, so banning it would be counterproductive. A proof-of-work tier challenges suspicious clients — or everyone, with `pow.mode: all`. The browser solves a small puzzle once, is remembered by an anonymous session cookie, and passes through; a crawler reading a million pages pays it a million times. It is off by default.
+The split is deliberate. A denylisted actor is banished (403 and fail2ban). A honeypot-confirmed crawler is detained instead: the aim is to keep it crawling the maze and spending its own budget, so banning it would be counterproductive. If `robots.serve` is on, Henbane publishes a `/robots.txt` that `Disallow`s the honeypot trap: well-behaved crawlers avoid it, so any client that fetches it is provably ignoring `robots.txt` — and gets confirmed as a bad bot.
+
+A proof-of-work tier challenges suspicious clients — or everyone, with `pow.mode: all`. The browser solves a small puzzle once, is remembered by an anonymous session cookie, and passes through; a crawler reading a million pages pays it a million times. It is off by default.
 
 ## Quick start
 
@@ -115,6 +117,11 @@ pow:
 bomb:
   trigger: off                   # off | confirmed | blocked (serve a gzip bomb)
   decompressed_cap_mb: 64        # inflated-size cap; clamped [1, 1024]
+
+robots:
+  serve: false                   # if true, Henbane serves /robots.txt
+  disallow:                      # extra paths to Disallow (the honeypot trap is auto-added)
+    - "/private"
 
 sinks:
   fail2ban:
