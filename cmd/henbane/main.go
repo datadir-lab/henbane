@@ -56,9 +56,19 @@ func serve(cfg config.Config, h http.Handler, logger *slog.Logger) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
-		logger.Info("shutdown signal received; draining")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return srv.Shutdown(shutdownCtx)
 	}
+
+	logger.Info("shutdown signal received; draining (signal again to force exit)")
+	// A second signal during drain forces an immediate exit.
+	forced := make(chan os.Signal, 1)
+	signal.Notify(forced, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-forced
+		logger.Warn("second signal received; forcing exit")
+		os.Exit(1)
+	}()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return srv.Shutdown(shutdownCtx)
 }

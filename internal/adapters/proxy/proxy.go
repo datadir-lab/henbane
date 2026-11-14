@@ -41,7 +41,7 @@ type Handler struct {
 
 // New builds a Handler proxying to upstream, consulting engine and fanning
 // events to sinks. Upstream transport errors are routed through logger
-// (structured) instead of the stdlib default logger.
+// (structured) instead of the stdlib default logger. logger must be non-nil.
 func New(upstream *url.URL, engine ports.Engine, sinks []ports.Sink, logger *slog.Logger) *Handler {
 	rp := httputil.NewSingleHostReverseProxy(upstream)
 	rp.ErrorLog = slog.NewLogLogger(logger.Handler(), slog.LevelError)

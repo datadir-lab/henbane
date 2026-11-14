@@ -23,9 +23,8 @@ func Default() Config {
 
 // LoadFile returns defaults merged with the YAML at path. Empty path => defaults.
 func LoadFile(path string) (Config, error) {
-	cfg := Default()
 	if path == "" {
-		return cfg, nil
+		return Default(), nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
