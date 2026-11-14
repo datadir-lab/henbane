@@ -281,3 +281,33 @@ func TestParsePoWRoundTripAndTTLDefaults(t *testing.T) {
 		t.Errorf("default TTLs = %v / %v, want 5m / 1h", ch, ac)
 	}
 }
+
+func TestParseBombValidTriggers(t *testing.T) {
+	for _, tr := range []string{"off", "confirmed", "blocked"} {
+		if _, err := parsePoison(t, "upstream: \"http://a:1\"\nbomb:\n  trigger: \""+tr+"\"\n"); err != nil {
+			t.Errorf("bomb.trigger %q rejected: %v", tr, err)
+		}
+	}
+}
+
+func TestParseBombUnknownTrigger(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nbomb:\n  trigger: \"nuke\"\n"); err == nil {
+		t.Error("expected error for unknown bomb.trigger")
+	}
+}
+
+func TestParseBombNegativeCap(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nbomb:\n  decompressed_cap_mb: -1\n"); err == nil {
+		t.Error("negative bomb.decompressed_cap_mb must be rejected")
+	}
+}
+
+func TestParseBombRoundTrip(t *testing.T) {
+	cfg, err := parsePoison(t, "upstream: \"http://a:1\"\nbomb:\n  trigger: \"confirmed\"\n  decompressed_cap_mb: 128\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Bomb.Trigger != "confirmed" || cfg.Bomb.DecompressedCapMB != 128 {
+		t.Errorf("bomb = %+v", cfg.Bomb)
+	}
+}

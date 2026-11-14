@@ -34,6 +34,13 @@ type Poison struct {
 	Salt              string `yaml:"salt"`                // per-deployment; required for canary
 }
 
+// Bomb configures the decompression-bomb poison response. Off by default; only
+// ever fires on a confirmed-hostile tier for a gzip-capable client.
+type Bomb struct {
+	Trigger           string `yaml:"trigger"`             // off|confirmed|blocked; "" => off
+	DecompressedCapMB int    `yaml:"decompressed_cap_mb"` // 0 => default 64; clamped to [1,1024] downstream
+}
+
 // PoW configures the proof-of-work challenge gate.
 type PoW struct {
 	Mode           string `yaml:"mode"`            // off|suspect|all; "" => off
@@ -54,6 +61,7 @@ type Config struct {
 	Labyrinth      Labyrinth `yaml:"labyrinth"`
 	Poison         Poison    `yaml:"poison"`
 	PoW            PoW       `yaml:"pow"`
+	Bomb           Bomb      `yaml:"bomb"`
 }
 
 // PoWChallengeTTL parses PoW.ChallengeTTL, defaulting to 5m; must be positive.
@@ -229,6 +237,14 @@ func Parse(args []string) (Config, error) {
 	}
 	if _, err := cfg.PoWAccessTTL(); err != nil {
 		return Config{}, err
+	}
+	switch cfg.Bomb.Trigger {
+	case "", "off", "confirmed", "blocked":
+	default:
+		return Config{}, fmt.Errorf("bomb.trigger %q is not one of off|confirmed|blocked", cfg.Bomb.Trigger)
+	}
+	if cfg.Bomb.DecompressedCapMB < 0 {
+		return Config{}, fmt.Errorf("bomb.decompressed_cap_mb must be >= 0")
 	}
 	return cfg, nil
 }
