@@ -1,40 +1,69 @@
 // Package core holds Henbane's decision engine. It imports only the ports
-// package and the standard library — never any adapter or transport package.
+// package and the standard library — never any adapter, config, or transport
+// package.
 package core
 
 import (
 	"context"
+	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/henbane-sh/henbane/internal/ports"
 )
 
-// clock returns the current time; overridable in tests.
+// Policy is the classifier configuration: the operator denylist.
+type Policy struct {
+	DenyCIDRs      []netip.Prefix
+	DenyUserAgents []string // matched case-insensitively as substrings
+}
+
 type clock func() time.Time
 
-// Engine is the decision engine. Slice 0: allow all traffic.
+// Engine is the decision engine.
 type Engine struct {
-	now clock
+	policy Policy
+	now    clock
 }
 
-// NewEngine builds an Engine using the real clock.
-func NewEngine() *Engine {
-	return &Engine{now: time.Now}
+// NewEngine builds an Engine applying policy. A zero Policy allows all traffic.
+func NewEngine(policy Policy) *Engine {
+	return &Engine{policy: policy, now: time.Now}
 }
 
-// Decide (Slice 0) allows every request and emits a single allow Event.
+// Decide blocks denylisted clients (by IP/CIDR, then user-agent) and otherwise
+// allows the request.
 func (e *Engine) Decide(ctx context.Context, r ports.RequestView) (ports.Verdict, []ports.Event) {
-	verdict := ports.Verdict{Action: ports.ActionAllow, Tier: ports.TierPass}
+	if ip := r.IP(); ip.IsValid() {
+		for _, p := range e.policy.DenyCIDRs {
+			if p.Contains(ip) {
+				return e.emit(r, ports.ActionBlock, ports.TierBlocked, []ports.Signal{"denylist_ip"})
+			}
+		}
+	}
+	if ua := r.UserAgent(); ua != "" {
+		lower := strings.ToLower(ua)
+		for _, deny := range e.policy.DenyUserAgents {
+			if deny != "" && strings.Contains(lower, strings.ToLower(deny)) {
+				return e.emit(r, ports.ActionBlock, ports.TierBlocked, []ports.Signal{"denylist_ua"})
+			}
+		}
+	}
+	return e.emit(r, ports.ActionAllow, ports.TierPass, nil)
+}
+
+func (e *Engine) emit(r ports.RequestView, action ports.Action, tier ports.Tier, signals []ports.Signal) (ports.Verdict, []ports.Event) {
+	v := ports.Verdict{Action: action, Tier: tier, Reasons: signals}
 	ev := ports.Event{
 		Time:      e.now(),
 		IP:        r.IP(),
 		UserAgent: r.UserAgent(),
 		Path:      r.Path(),
-		Action:    ports.ActionAllow,
-		Tier:      ports.TierPass,
+		Action:    action,
+		Tier:      tier,
+		Signals:   signals,
 	}
-	return verdict, []ports.Event{ev}
+	return v, []ports.Event{ev}
 }
 
-// Compile-time assertion that Engine satisfies ports.Engine.
 var _ ports.Engine = (*Engine)(nil)

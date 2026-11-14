@@ -22,7 +22,7 @@ func newHandler(cfg config.Config, logger *slog.Logger) (http.Handler, error) {
 	if upstream.Scheme == "" || upstream.Host == "" {
 		return nil, fmt.Errorf("invalid upstream %q: missing scheme or host", cfg.Upstream)
 	}
-	engine := core.NewEngine()
+	engine := core.NewEngine(core.Policy{})
 	sinks := []ports.Sink{sink.NewSlogSink(logger)}
 	return proxy.New(upstream, engine, sinks, logger), nil
 }
