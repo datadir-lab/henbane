@@ -14,7 +14,7 @@ var allowedModules = map[string]bool{
 	// "golang.org/x/crypto": true, // reserved for the autocert slice (not yet)
 }
 
-const mainModule = "github.com/henbane-sh/henbane"
+const mainModule = "github.com/datadir-lab/henbane"
 
 type depPkg struct {
 	Standard bool

@@ -9,8 +9,8 @@ import (
 	"net/netip"
 	"net/url"
 
-	"github.com/henbane-sh/henbane/internal/clientip"
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/clientip"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
 
 // MazeWriter writes a labyrinth page for a request path.

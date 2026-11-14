@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
 
 // Generator produces maze pages.

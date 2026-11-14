@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/henbane-sh/henbane/internal/clientip"
-	"github.com/henbane-sh/henbane/internal/core"
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/clientip"
+	"github.com/datadir-lab/henbane/internal/core"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
 
 func discardLogger() *slog.Logger { return slog.New(slog.NewJSONHandler(io.Discard, nil)) }
