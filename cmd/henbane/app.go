@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 
 	"github.com/henbane-sh/henbane/internal/adapters/proxy"
 	"github.com/henbane-sh/henbane/internal/adapters/sink"
@@ -17,6 +18,9 @@ import (
 	"github.com/henbane-sh/henbane/internal/flagstore"
 	"github.com/henbane-sh/henbane/internal/generate/labyrinth"
 	"github.com/henbane-sh/henbane/internal/generate/poison"
+	"github.com/henbane-sh/henbane/internal/generate/poison/article"
+	"github.com/henbane-sh/henbane/internal/generate/poison/babble"
+	"github.com/henbane-sh/henbane/internal/generate/poison/canary"
 	"github.com/henbane-sh/henbane/internal/ports"
 )
 
@@ -69,6 +73,35 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 		sinks = append(sinks, sink.NewFail2banSink(fail2banW))
 	}
 
-	maze := labyrinth.New(cfg.Labyrinth.LinksPerPage, poison.None{}, 0)
+	poisoner, err := buildPoisoner(cfg)
+	if err != nil {
+		return nil, err
+	}
+	maze := labyrinth.New(cfg.Labyrinth.LinksPerPage, poisoner, cfg.Poison.ParagraphsPerPage)
 	return proxy.New(upstream, engine, sinks, logger, resolver, maze), nil
+}
+
+// buildPoisoner selects the configured poison strategy. corpus_path (babble only)
+// is read here so the poison packages never touch the filesystem or config.
+func buildPoisoner(cfg config.Config) (ports.Poisoner, error) {
+	switch cfg.Poison.Strategy {
+	case "", "babble":
+		var corpus []byte
+		if cfg.Poison.CorpusPath != "" {
+			b, err := os.ReadFile(cfg.Poison.CorpusPath)
+			if err != nil {
+				return nil, fmt.Errorf("read poison corpus %q: %w", cfg.Poison.CorpusPath, err)
+			}
+			corpus = b
+		}
+		return babble.New(corpus, cfg.Poison.Salt), nil
+	case "article":
+		return article.New(cfg.Poison.Salt), nil
+	case "canary":
+		return canary.New(cfg.Poison.Salt), nil
+	case "none":
+		return poison.None{}, nil
+	default:
+		return nil, fmt.Errorf("unknown poison.strategy %q", cfg.Poison.Strategy)
+	}
 }
