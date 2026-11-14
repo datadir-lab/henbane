@@ -78,7 +78,7 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 		return nil, err
 	}
 	maze := labyrinth.New(cfg.Labyrinth.LinksPerPage, poisoner, cfg.Poison.ParagraphsPerPage)
-	return proxy.New(upstream, engine, sinks, logger, resolver, maze), nil
+	return proxy.New(upstream, engine, sinks, logger, resolver, maze, proxy.PoW{}), nil
 }
 
 // buildPoisoner selects the configured poison strategy. corpus_path (babble only)
