@@ -1,0 +1,18 @@
+# Keep the Docker build context to Go sources + module files only.
+# VCS & attributes
+.git
+.github
+.gitignore
+.gitattributes
+.dockerignore
+
+# SDD scratch, docs, and project meta (never needed to compile)
+.scratch
+docs
+*.md
+LICENSE
+
+# dev tooling / local config
+lefthook.yml
+.conform.yaml
+Dockerfile

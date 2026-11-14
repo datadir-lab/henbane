@@ -11,9 +11,10 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: "1.23"
       - name: gofmt
@@ -29,50 +30,57 @@ jobs:
 
   vuln:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: "1.23"
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   codeql:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: "1.23"
+      - uses: github/codeql-action/init@v4.39.3
         with:
           languages: go
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4.39.3
 
   commits:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
       - name: conform
         run: |
-          go install github.com/siderolabs/conform/cmd/conform@latest
+          go install github.com/siderolabs/conform/cmd/conform@v0.1.0-alpha.33
           "$(go env GOPATH)/bin/conform" enforce --base-branch=origin/${{ github.base_ref }}
 
   image:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: build image
         run: docker build -t henbane:ci .
       - name: trivy scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: henbane:ci
           format: sarif
           output: trivy.sarif
           exit-code: "1"
           severity: CRITICAL,HIGH
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4.39.3
         if: always()
         with:
           sarif_file: trivy.sarif
