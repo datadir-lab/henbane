@@ -112,4 +112,10 @@ go test ./...
 
 ## License
 
-See [LICENSE](LICENSE).
+Henbane is free software licensed under the **GNU Affero General Public License
+v3.0** (AGPL-3.0) — see [LICENSE](LICENSE). Copyright © 2026 datadir s. r. o.
+
+The AGPL is deliberate: anyone who runs a modified Henbane as a network service
+must share their modifications. The open gateway stays a commons; a managed
+control plane (dashboard, analytics, federation) is offered separately. See
+[docs/STRATEGY.md](docs/STRATEGY.md).
