@@ -1,8 +1,9 @@
 # Henbane — brand & logo
 
 The henbane mark is a single bloom of *Hyoscyamus niger* **segmented out of a real
-photograph** (OpenCV GrabCut) and rendered in two greens, so it keeps the flower's own
-net-veining and dark throat. It is not a drawn icon — the detail is the point.
+photograph** (OpenCV GrabCut) and rendered in the flower's own palette: pale straw-yellow
+petals, a purple net of veins, and a near-black throat. It is not a drawn icon; the detail
+is the point.
 
 ## The marks
 
@@ -19,8 +20,10 @@ net-veining and dark throat. It is not a drawn icon — the detail is the point.
 
 ## Colour
 
-Monochrome green over two grounds. Accent greens are additive; meaning never depends on hue.
-All text pairs below pass **WCAG AA** (≥4.5:1 normal, ≥3:1 large/UI) — audited, see ratios.
+The **mark** carries the flower's own henbane palette (straw-yellow, purple, dark throat).
+The **UI** stays monochrome green over two grounds, so the flower is the one richly-colored
+element. Accent greens are additive; meaning never depends on hue. All text pairs below pass
+**WCAG AA** (≥4.5:1 normal, ≥3:1 large/UI), audited, see ratios.
 
 | Role | Hex | On | Ratio |
 |---|---|---|---|
@@ -34,8 +37,8 @@ All text pairs below pass **WCAG AA** (≥4.5:1 normal, ≥3:1 large/UI) — aud
 | Deep-green accent | `#33512f` | parchment | 7.6 |
 | Lime accent | `#8fae63` | night | 6.7 |
 
-Flower tones (imagery, not text): sage petals `~#9db36a→#b2c47e`, dark veins/throat
-`~#26401f→#38603a`, with a radial gradient darkest at the throat.
+Flower tones (imagery, not text): straw-yellow petals `~#c6c078→#e0db96`, purple net-veins
+`~#604678→#7c5e8f`, near-black throat `~#241434`, darkest at the center.
 
 ## Type
 
