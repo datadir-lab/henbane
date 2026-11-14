@@ -35,6 +35,9 @@ func TestClientIP(t *testing.T) {
 		{"malformed entries skipped", prefixes(t, "10.0.0.0/8"), "10.0.0.1:5000", []string{",, garbage ,203.0.113.9, 10.0.0.2"}, "203.0.113.9"},
 		{"all trusted falls back to invalid", prefixes(t, "10.0.0.0/8"), "10.0.0.1:5000", []string{"10.0.0.2, 10.0.0.3"}, ""},
 		{"multiple xff header lines merged", prefixes(t, "10.0.0.0/8"), "10.0.0.1:5000", []string{"1.2.3.4", "203.0.113.9, 10.0.0.2"}, "203.0.113.9"},
+		{"edge mode bracketed ipv6 connection", nil, "[2001:db8::1]:5000", nil, "2001:db8::1"},
+		{"bracketed ipv6 client via trusted proxy", prefixes(t, "10.0.0.0/8"), "10.0.0.1:5000", []string{"[2001:db8::1]:443"}, "2001:db8::1"},
+		{"quoted xff entry", prefixes(t, "10.0.0.0/8"), "10.0.0.1:5000", []string{"\"203.0.113.9\""}, "203.0.113.9"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
