@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # Go modules — kept minimal by the zero-third-party-dep policy, but watch the
+  # Go directive and the single allowlisted dependency (gopkg.in/yaml.v3).
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    open-pull-requests-limit: 5
+
+  # Container base images (Dockerfile) — keeps the digest-pinned golang and
+  # distroless bases current.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    open-pull-requests-limit: 5
+
+  # GitHub Actions versions are also enforced by .github/workflows/actions.lock
+  # (gh actions-lock). Dependabot proposes the human-readable tag bumps; the
+  # lockfile is regenerated when the bump is accepted.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    open-pull-requests-limit: 5
