@@ -1,0 +1,138 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>henbane · the mark in use</title>
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="fonts.css">
+<style>
+  :root{
+    --studio:#d4d1c2; --ink:#1b1d14; --mut:#524f43; --rule:#b4b1a0;
+    --night:#14160f; --bone:#e9ecd8; --green:#7aa054; --gdark:#8fae63;
+    --fell:'IMFell',Georgia,serif; --black:'Unifraktur',serif; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--studio);color:var(--ink);font-family:var(--fell);font-size:17px}
+  .wrap{max-width:1080px;margin:0 auto;padding:46px 40px 90px}
+  .wrap > h1{font-family:var(--black);font-size:40px;margin:0 0 4px}
+  .wrap > .sub{color:var(--mut);font-family:var(--mono);font-size:12px;margin:0 0 40px}
+  .lab{font-family:var(--mono);font-size:11px;color:var(--mut);margin:34px 0 12px;letter-spacing:.02em}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:34px}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+
+  /* browser */
+  .browser{background:#eceadf;border:1px solid var(--rule);border-radius:9px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+  .chrome{background:#dedacc;padding:9px 12px;display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--rule)}
+  .dots{display:flex;gap:6px}.dots i{width:11px;height:11px;border-radius:50%;background:#bdb8a6;display:block}
+  .tab{background:#eceadf;border-radius:6px 6px 0 0;padding:5px 12px;display:flex;align-items:center;gap:7px;font-size:12px;margin-left:4px;max-width:260px}
+  .tab img{width:16px;height:16px}
+  .tab span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .addr{flex:1;background:#f3f1e8;border:1px solid var(--rule);border-radius:6px;padding:5px 10px;font-family:var(--mono);font-size:11.5px;color:var(--mut)}
+  .viewport{height:150px;display:flex;align-items:center;gap:14px;padding:0 26px;background:#f3f1e8}
+  .viewport img{width:60px;height:60px}
+  .viewport .t{font-family:var(--black);font-size:26px}
+  .viewport .d{color:var(--mut);font-size:13px}
+
+  /* app icons on a home screen */
+  .home{background:linear-gradient(160deg,#20241a,#2f3524);border-radius:14px;padding:26px;display:flex;gap:22px;align-items:flex-start}
+  .app{text-align:center}
+  .app .ic{width:84px;height:84px;border-radius:20px;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,.35);background:#101309}
+  .app .ic img{width:100%;height:100%;object-fit:cover}
+  .app .nm{color:#e9ecd8;font-size:12px;margin-top:8px;font-family:system-ui,sans-serif}
+  .app.round .ic{border-radius:50%}
+
+  /* github header */
+  .gh{background:#fbfaf4;border:1px solid var(--rule);border-radius:9px;padding:26px 28px}
+  .gh .row{display:flex;align-items:center;gap:20px}
+  .gh img{width:96px;height:96px}
+  .gh .name{font-family:var(--black);font-size:34px;line-height:1}
+  .gh .tagline{font-size:16px;color:#3f3d30;margin:4px 0 0}
+  .gh .badges{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .gh .badge{font-family:var(--mono);font-size:11px;border:1px solid var(--rule);border-radius:4px;padding:3px 8px;color:var(--mut)}
+
+  /* social card */
+  .social{aspect-ratio:1200/630;background:radial-gradient(900px 400px at 80% 120%, rgba(122,160,84,.14), transparent 60%),#15170f;
+    border-radius:10px;color:var(--bone);padding:40px 44px;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
+  .social .top{display:flex;align-items:center;gap:18px}
+  .social .top img{width:84px;height:84px}
+  .social .top .nm{font-family:var(--black);font-size:40px}
+  .social .big{font-family:var(--fell);font-size:30px;line-height:1.25;max-width:20ch}
+  .social .url{font-family:var(--mono);font-size:13px;color:var(--gdark)}
+
+  /* terminal */
+  .term{background:#0e100b;border:1px solid #2a2e20;border-radius:9px;overflow:hidden}
+  .term .bar{background:#171a12;padding:8px 12px;display:flex;gap:7px}.term .bar i{width:11px;height:11px;border-radius:50%;background:#2f3524;display:block}
+  .term pre{margin:0;padding:18px 20px;font-family:var(--mono);font-size:12.5px;line-height:1.7;color:#cfd6bd}
+  .term .g{color:var(--gdark)} .term .m{color:#726b55}
+
+  /* favicon sizes */
+  .sizes{display:flex;gap:30px;align-items:flex-end;background:#eceadf;border:1px solid var(--rule);border-radius:9px;padding:24px 28px}
+  .sizes figure{margin:0;text-align:center}
+  .sizes img{display:block;margin:0 auto;image-rendering:auto}
+  .sizes figcaption{font-family:var(--mono);font-size:10px;color:var(--mut);margin-top:7px}
+</style>
+
+<div class="wrap">
+  <h1>henbane</h1>
+  <div class="sub">the mark in use · segmented flower, two greens · drawn from the plant</div>
+
+  <div class="lab">browser tab · favicon</div>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots"><i></i><i></i><i></i></div>
+      <div class="tab"><img src="henbane-flower.png" alt=""><span>henbane · checking your browser</span></div>
+      <div class="addr">example.com</div>
+    </div>
+    <div class="viewport"><img src="henbane-flower.png" alt=""><div><div class="t">henbane</div><div class="d">the flower, lifted out</div></div></div>
+  </div>
+
+  <div class="lab">app / avatar icons</div>
+  <div class="home">
+    <div class="app"><div class="ic"><img src="henbane-flower-dark.png" alt=""></div><div class="nm">henbane</div></div>
+    <div class="app"><div class="ic"><img src="henbane-flower.png" alt=""></div><div class="nm">light</div></div>
+    <div class="app round"><div class="ic"><img src="henbane-flower-dark.png" alt=""></div><div class="nm">avatar</div></div>
+  </div>
+
+  <div class="lab">github / readme header</div>
+  <div class="gh">
+    <div class="row">
+      <img src="henbane-flower.png" alt="">
+      <div>
+        <div class="name">henbane</div>
+        <div class="tagline">A self-hosted gate that keeps AI scrapers off your site without taxing its readers.</div>
+        <div class="badges"><span class="badge">Go</span><span class="badge">stdlib-only</span><span class="badge">MIT</span><span class="badge">self-hosted</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <div class="lab">social / og card</div>
+      <div class="social">
+        <div class="top"><img src="henbane-flower-dark.png" alt=""><div class="nm">henbane</div></div>
+        <div class="big">Let honest readers in. Charge the crawlers at the gate.</div>
+        <div class="url">github.com/henbane-sh/henbane</div>
+      </div>
+    </div>
+    <div>
+      <div class="lab">cli startup</div>
+      <div class="term">
+        <div class="bar"><i></i><i></i><i></i></div>
+<pre><span class="m">$</span> henbane --upstream :8080
+<span class="g">henbane</span> v0.1  ·  listening :443 → :8080
+policy   default_tier=<span class="g">pass</span>
+signals  ua_deny=GPTBot,CCBot,ClaudeBot
+sinks    log=json  fail2ban=on
+<span class="m"># a human just passed in 1.8s; a crawler is still solving.</span></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="lab">favicon sizes (same file, scaled)</div>
+  <div class="sizes">
+    <figure><img src="henbane-flower.png" width="64" height="64"><figcaption>64</figcaption></figure>
+    <figure><img src="henbane-flower.png" width="32" height="32"><figcaption>32</figcaption></figure>
+    <figure><img src="henbane-flower.png" width="16" height="16"><figcaption>16</figcaption></figure>
+    <figure><img src="henbane-flower-dark.png" width="48" height="48"><figcaption>48 · dark</figcaption></figure>
+  </div>
+</div>

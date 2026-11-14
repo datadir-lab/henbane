@@ -7,3 +7,7 @@
 
 # Local tooling settings
 .claude/
+
+# logo/branding scratch
+.playwright-mcp/
+assets/logo/shot-*.png
