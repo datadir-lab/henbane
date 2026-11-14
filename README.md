@@ -31,7 +31,7 @@ Every request is classified into a tier, and the tier picks an action.
 | Tier | Trigger | Action | Response |
 |---|---|---|---|
 | `Pass` | normal traffic | Allow | proxied to your upstream |
-| `Suspect` | heuristic signal, or `pow.mode: all` | **Challenge** | a proof-of-work interstitial, then passed through |
+| `Suspect` | spoofed browser UA (`pow.mode: suspect`), or `pow.mode: all` | **Challenge** | a proof-of-work interstitial, then passed through |
 | `Confirmed` | tripped a honeypot trap | **Tarpit** | `200`, a labyrinth maze page with poison text, no ban |
 | `Blocked` | on a denylist (IP or UA) | **Block** | `403`, plus a fail2ban ban line if configured |
 
