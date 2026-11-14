@@ -26,7 +26,18 @@ func pkgInfo(t *testing.T, importPath string) listPkg {
 }
 
 func TestCorePurity(t *testing.T) {
-	targets := []string{mainModule + "/internal/ports", mainModule + "/internal/core"}
+	targets := []string{
+		mainModule + "/internal/ports",
+		mainModule + "/internal/core",
+		mainModule + "/internal/flagstore",
+		mainModule + "/internal/detect/denylist",
+		mainModule + "/internal/detect/honeypot",
+		mainModule + "/internal/generate/labyrinth",
+		mainModule + "/internal/generate/poison",
+		mainModule + "/internal/generate/poison/babble",
+		mainModule + "/internal/generate/poison/article",
+		mainModule + "/internal/generate/poison/canary",
+	}
 
 	for _, target := range targets {
 		info := pkgInfo(t, target)
@@ -38,6 +49,8 @@ func TestCorePurity(t *testing.T) {
 				t.Errorf("%s illegally depends on adapter package %s", target, dep)
 			case strings.HasSuffix(dep, "/internal/config"):
 				t.Errorf("%s illegally depends on config package %s", target, dep)
+			case strings.HasSuffix(dep, "/internal/clientip"):
+				t.Errorf("%s illegally depends on clientip package %s", target, dep)
 			}
 		}
 	}

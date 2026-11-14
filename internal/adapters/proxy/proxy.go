@@ -2,15 +2,21 @@
 package proxy
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/netip"
 	"net/url"
 
-	"github.com/henbane-sh/henbane/internal/clientip"
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/clientip"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
+
+// MazeWriter writes a labyrinth page for a request path.
+type MazeWriter interface {
+	WritePage(w io.Writer, path string) error
+}
 
 // requestView adapts *http.Request to ports.RequestView, resolving the client
 // IP through the trusted-proxy resolver.
@@ -33,19 +39,21 @@ type Handler struct {
 	sinks    []ports.Sink
 	logger   *slog.Logger
 	resolver *clientip.Resolver
+	maze     MazeWriter
 	rp       *httputil.ReverseProxy
 }
 
 // New builds a Handler proxying to upstream, consulting engine and fanning
 // events to sinks. resolver determines the client IP; logger must be non-nil.
-func New(upstream *url.URL, engine ports.Engine, sinks []ports.Sink, logger *slog.Logger, resolver *clientip.Resolver) *Handler {
+// maze serves the labyrinth page on a tarpit verdict.
+func New(upstream *url.URL, engine ports.Engine, sinks []ports.Sink, logger *slog.Logger, resolver *clientip.Resolver, maze MazeWriter) *Handler {
 	rp := httputil.NewSingleHostReverseProxy(upstream)
 	rp.ErrorLog = slog.NewLogLogger(logger.Handler(), slog.LevelError)
 	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		logger.Error("upstream proxy error", "err", err, "path", r.URL.Path)
 		w.WriteHeader(http.StatusBadGateway)
 	}
-	return &Handler{engine: engine, sinks: sinks, logger: logger, resolver: resolver, rp: rp}
+	return &Handler{engine: engine, sinks: sinks, logger: logger, resolver: resolver, maze: maze, rp: rp}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -60,8 +68,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.rp.ServeHTTP(w, r)
 	case ports.ActionBlock:
 		http.Error(w, "forbidden", http.StatusForbidden)
+	case ports.ActionTarpit:
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := h.maze.WritePage(w, r.URL.Path); err != nil {
+			h.logger.Error("labyrinth write failed", "err", err, "path", r.URL.Path)
+		}
 	default:
-		// Fail closed: actions without a handler yet (challenge/tarpit/poison,
+		// Fail closed: actions without a handler yet (challenge/poison,
 		// added in later slices) must NOT pass traffic through.
 		h.logger.Error("unhandled verdict action; failing closed",
 			"action", verdict.Action.String(),

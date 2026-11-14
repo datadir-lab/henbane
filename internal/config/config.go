@@ -8,17 +8,42 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+// Honeypot configures the trap-path honeypot detector.
+type Honeypot struct {
+	Enabled    bool   `yaml:"enabled"`
+	Path       string `yaml:"path"`        // absolute path prefix of the trap
+	FlagTTL    string `yaml:"flag_ttl"`    // e.g. "1h"; default 1h
+	MaxFlagged int    `yaml:"max_flagged"` // hard cap; 0 => default 100000
+}
+
+// Labyrinth configures the maze served to confirmed crawlers.
+type Labyrinth struct {
+	LinksPerPage int `yaml:"links_per_page"` // 0 => generator default (15)
+}
+
+// Poison configures the poison body text injected into maze pages.
+type Poison struct {
+	Strategy          string `yaml:"strategy"`            // babble|article|canary|none; "" => babble
+	ParagraphsPerPage int    `yaml:"paragraphs_per_page"` // 0 => default 3; clamped [0,20] downstream
+	CorpusPath        string `yaml:"corpus_path"`         // optional BYO corpus (babble); ignored by article/canary
+	Salt              string `yaml:"salt"`                // per-deployment; required for canary
+}
+
 // Config is the Henbane configuration.
 type Config struct {
-	Listen         string   `yaml:"listen"`
-	Upstream       string   `yaml:"upstream"`
-	TrustedProxies []string `yaml:"trusted_proxies"`
-	Deny           Deny     `yaml:"deny"`
-	Sinks          Sinks    `yaml:"sinks"`
+	Listen         string    `yaml:"listen"`
+	Upstream       string    `yaml:"upstream"`
+	TrustedProxies []string  `yaml:"trusted_proxies"`
+	Deny           Deny      `yaml:"deny"`
+	Sinks          Sinks     `yaml:"sinks"`
+	Honeypot       Honeypot  `yaml:"honeypot"`
+	Labyrinth      Labyrinth `yaml:"labyrinth"`
+	Poison         Poison    `yaml:"poison"`
 }
 
 // Deny is the operator denylist.
@@ -43,6 +68,21 @@ func (c Config) TrustedPrefixes() ([]netip.Prefix, error) { return parsePrefixes
 
 // DenyPrefixes parses Deny.CIDRs into CIDRs.
 func (c Config) DenyPrefixes() ([]netip.Prefix, error) { return parsePrefixes(c.Deny.CIDRs) }
+
+// HoneypotTTL parses FlagTTL, defaulting to 1h. It must be positive.
+func (c Config) HoneypotTTL() (time.Duration, error) {
+	if c.Honeypot.FlagTTL == "" {
+		return time.Hour, nil
+	}
+	d, err := time.ParseDuration(c.Honeypot.FlagTTL)
+	if err != nil {
+		return 0, fmt.Errorf("invalid honeypot.flag_ttl %q: %w", c.Honeypot.FlagTTL, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("honeypot.flag_ttl must be positive, got %q", c.Honeypot.FlagTTL)
+	}
+	return d, nil
+}
 
 func parsePrefixes(cidrs []string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
@@ -102,11 +142,45 @@ func Parse(args []string) (Config, error) {
 	if cfg.Upstream == "" {
 		return Config{}, fmt.Errorf("upstream is required (set --upstream or upstream: in config)")
 	}
-	if _, err := cfg.TrustedPrefixes(); err != nil {
+	tp, err := cfg.TrustedPrefixes()
+	if err != nil {
 		return Config{}, err
+	}
+	// Reject a literal default route (/0), the common footgun that trusts every
+	// client. This does NOT catch equivalent broad unions (e.g. 0.0.0.0/1 +
+	// 128.0.0.0/1); avoiding those remains the operator's responsibility.
+	for _, p := range tp {
+		if p.Bits() == 0 {
+			return Config{}, fmt.Errorf("trusted_proxies %q is too broad: trusting all addresses re-enables X-Forwarded-For spoofing", p)
+		}
 	}
 	if _, err := cfg.DenyPrefixes(); err != nil {
 		return Config{}, err
+	}
+	if cfg.Honeypot.Enabled {
+		if !strings.HasPrefix(cfg.Honeypot.Path, "/") {
+			return Config{}, fmt.Errorf("honeypot.path must be an absolute path, got %q", cfg.Honeypot.Path)
+		}
+		if _, err := cfg.HoneypotTTL(); err != nil {
+			return Config{}, err
+		}
+		if cfg.Honeypot.MaxFlagged < 0 {
+			return Config{}, fmt.Errorf("honeypot.max_flagged must be >= 0")
+		}
+	}
+	if cfg.Labyrinth.LinksPerPage < 0 {
+		return Config{}, fmt.Errorf("labyrinth.links_per_page must be >= 0")
+	}
+	switch cfg.Poison.Strategy {
+	case "", "babble", "article", "canary", "none":
+	default:
+		return Config{}, fmt.Errorf("poison.strategy %q is not one of babble|article|canary|none", cfg.Poison.Strategy)
+	}
+	if cfg.Poison.ParagraphsPerPage < 0 {
+		return Config{}, fmt.Errorf("poison.paragraphs_per_page must be >= 0")
+	}
+	if cfg.Poison.Strategy == "canary" && cfg.Poison.Salt == "" {
+		return Config{}, fmt.Errorf("poison.salt is required when poison.strategy is canary")
 	}
 	return cfg, nil
 }

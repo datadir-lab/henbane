@@ -1,69 +1,93 @@
-# Actions use readable version tags; .github/workflows/actions.lock pins each
-# action (and its transitive deps) to an immutable commit SHA, which the GitHub
-# Actions runtime enforces at dispatch. The "actions-lock" job fails on lockfile
-# drift. Regenerate the lockfile with: gh actions-lock
+# Third-party actions are pinned to immutable commit SHAs (with a trailing version
+# comment); Dependabot (github-actions ecosystem) proposes SHA bumps.
 name: ci
 on:
   push:
     branches: [main]
   pull_request:
 
+# Least privilege by default; jobs opt into more only where needed.
 permissions:
   contents: read
-  security-events: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          go-version: "1.23"
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: vet
         run: go vet ./...
       - name: architecture + allowlist tests
-        run: go test ./internal/arch/...
+        run: go test -count=1 ./internal/arch/...
       - name: unit tests
         run: go test -race -cover ./...
       - name: build
         run: go build ./...
 
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
+
   vuln:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          go-version: "1.23"
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   codeql:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          go-version: "1.23"
-      - uses: github/codeql-action/init@v4.39.3
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: go
-      - uses: github/codeql-action/analyze@v4.39.3
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
 
   commits:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Check out the PR head itself, not the synthetic pull_request merge
+          # commit — otherwise conform lints GitHub's "Merge … into …" commit.
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - name: conform
         run: |
           go install github.com/siderolabs/conform/cmd/conform@v0.1.0-alpha.33
@@ -72,31 +96,30 @@ jobs:
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: build image
         run: docker build -t henbane:ci .
       - name: trivy scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        # Report-only: findings are uploaded to the Security tab (and base-image
+        # freshness is tracked by Dependabot + Scorecard). Our Go code and the
+        # standard library are authoritatively gated by the blocking `vuln`
+        # (govulncheck, reachability-aware) and `codeql` jobs; Trivy's broad
+        # version-range matching should surface, not hard-block, upstream CVEs.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: henbane:ci
           format: sarif
           output: trivy.sarif
-          exit-code: "1"
+          exit-code: "0"
+          ignore-unfixed: true
           severity: CRITICAL,HIGH
-      - uses: github/codeql-action/upload-sarif@v4.39.3
+      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         if: always()
         with:
           sarif_file: trivy.sarif
-
-  actions-lock:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - name: verify actions lockfile is current
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh extension install github/gh-actions-lock
-          gh actions-lock --no-fix

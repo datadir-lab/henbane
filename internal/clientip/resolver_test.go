@@ -2,6 +2,7 @@ package clientip
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 )
 
@@ -38,6 +39,7 @@ func TestClientIP(t *testing.T) {
 		{"edge mode bracketed ipv6 connection", nil, "[2001:db8::1]:5000", nil, "2001:db8::1"},
 		{"bracketed ipv6 client via trusted proxy", prefixes(t, "10.0.0.0/8"), "10.0.0.1:5000", []string{"[2001:db8::1]:443"}, "2001:db8::1"},
 		{"quoted xff entry", prefixes(t, "10.0.0.0/8"), "10.0.0.1:5000", []string{"\"203.0.113.9\""}, "203.0.113.9"},
+		{"ipv4-mapped ipv6 xff entry is unmapped", prefixes(t, "10.0.0.0/8"), "10.0.0.1:5000", []string{"::ffff:203.0.113.9"}, "203.0.113.9"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,5 +54,17 @@ func TestClientIP(t *testing.T) {
 				t.Fatalf("got %v, want %s", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestClientIPBoundsLongXFF ensures a hostile, very long X-Forwarded-For still
+// resolves to the rightmost untrusted IP (the security-relevant one) without
+// processing the whole list.
+func TestClientIPBoundsLongXFF(t *testing.T) {
+	trusted := prefixes(t, "10.0.0.0/8")
+	long := strings.Repeat("1.1.1.1, ", 500) + "203.0.113.9, 10.0.0.2"
+	got := NewResolver(trusted).ClientIP("10.0.0.1:5000", []string{long})
+	if got != netip.MustParseAddr("203.0.113.9") {
+		t.Fatalf("got %v, want 203.0.113.9", got)
 	}
 }

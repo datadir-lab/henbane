@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestParseFlagsOverrideFile(t *testing.T) {
@@ -88,5 +89,151 @@ func TestParseRejectsBadCIDR(t *testing.T) {
 	}
 	if _, err := Parse([]string{"-config", path}); err == nil {
 		t.Fatal("expected error for invalid CIDR")
+	}
+}
+
+func TestParseRejectsBroadTrustedProxy(t *testing.T) {
+	for _, cidr := range []string{"0.0.0.0/0", "::/0"} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "henbane.yaml")
+		body := "upstream: \"http://a:1\"\ntrusted_proxies: [\"" + cidr + "\"]\n"
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse([]string{"-config", path}); err == nil {
+			t.Errorf("trusted_proxies %q: expected rejection (trusting all re-enables spoofing)", cidr)
+		}
+	}
+}
+
+func TestParseHoneypot(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "henbane.yaml")
+	body := "upstream: \"http://a:1\"\nhoneypot:\n  enabled: true\n  path: \"/.well-known/hb-trap\"\n  flag_ttl: \"30m\"\n  max_flagged: 5\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Parse([]string{"-config", path})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !cfg.Honeypot.Enabled || cfg.Honeypot.Path != "/.well-known/hb-trap" || cfg.Honeypot.MaxFlagged != 5 {
+		t.Errorf("honeypot = %+v", cfg.Honeypot)
+	}
+	ttl, err := cfg.HoneypotTTL()
+	if err != nil || ttl != 30*time.Minute {
+		t.Errorf("ttl = %v, %v", ttl, err)
+	}
+}
+
+func TestHoneypotTTLDefault(t *testing.T) {
+	ttl, err := Config{}.HoneypotTTL()
+	if err != nil || ttl != time.Hour {
+		t.Errorf("default ttl = %v, %v", ttl, err)
+	}
+}
+
+func TestParseRejectsEnabledHoneypotWithoutPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "henbane.yaml")
+	if err := os.WriteFile(path, []byte("upstream: \"http://a:1\"\nhoneypot:\n  enabled: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse([]string{"-config", path}); err == nil {
+		t.Fatal("expected error: enabled honeypot needs an absolute path")
+	}
+}
+
+func TestParseRejectsBadFlagTTL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "henbane.yaml")
+	if err := os.WriteFile(path, []byte("upstream: \"http://a:1\"\nhoneypot:\n  enabled: true\n  path: \"/t\"\n  flag_ttl: \"nope\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse([]string{"-config", path}); err == nil {
+		t.Fatal("expected error for invalid flag_ttl")
+	}
+}
+
+func TestParseLabyrinth(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "henbane.yaml")
+	if err := os.WriteFile(path, []byte("upstream: \"http://a:1\"\nlabyrinth:\n  links_per_page: 7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Parse([]string{"-config", path})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Labyrinth.LinksPerPage != 7 {
+		t.Errorf("links_per_page = %d, want 7", cfg.Labyrinth.LinksPerPage)
+	}
+}
+
+func TestParseRejectsNegativeLinks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "henbane.yaml")
+	if err := os.WriteFile(path, []byte("upstream: \"http://a:1\"\nlabyrinth:\n  links_per_page: -1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse([]string{"-config", path}); err == nil {
+		t.Fatal("expected error for negative links_per_page")
+	}
+}
+
+func parsePoison(t *testing.T, body string) (Config, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "henbane.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Parse([]string{"-config", path})
+}
+
+func TestParsePoisonDefaultStrategy(t *testing.T) {
+	cfg, err := parsePoison(t, "upstream: \"http://a:1\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Poison.Strategy != "" {
+		t.Errorf("strategy = %q, want \"\" (defaults to babble downstream)", cfg.Poison.Strategy)
+	}
+}
+
+func TestParsePoisonValidStrategies(t *testing.T) {
+	for _, s := range []string{"babble", "article", "canary", "none"} {
+		body := "upstream: \"http://a:1\"\npoison:\n  strategy: \"" + s + "\"\n  salt: \"x\"\n"
+		if _, err := parsePoison(t, body); err != nil {
+			t.Errorf("strategy %q rejected: %v", s, err)
+		}
+	}
+}
+
+func TestParsePoisonUnknownStrategy(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npoison:\n  strategy: \"bogus\"\n"); err == nil {
+		t.Error("expected error for unknown poison.strategy")
+	}
+}
+
+func TestParsePoisonCanaryRequiresSalt(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npoison:\n  strategy: \"canary\"\n"); err == nil {
+		t.Error("canary without salt must be rejected")
+	}
+}
+
+func TestParsePoisonNegativeParagraphs(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npoison:\n  paragraphs_per_page: -1\n"); err == nil {
+		t.Error("negative paragraphs_per_page must be rejected")
+	}
+}
+
+func TestParsePoisonRoundTrip(t *testing.T) {
+	body := "upstream: \"http://a:1\"\npoison:\n  strategy: \"babble\"\n  paragraphs_per_page: 4\n  corpus_path: \"/tmp/c.txt\"\n  salt: \"deploy1\"\n"
+	cfg, err := parsePoison(t, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Poison.ParagraphsPerPage != 4 || cfg.Poison.CorpusPath != "/tmp/c.txt" || cfg.Poison.Salt != "deploy1" {
+		t.Errorf("poison = %+v", cfg.Poison)
 	}
 }

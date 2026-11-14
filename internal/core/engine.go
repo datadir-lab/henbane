@@ -1,58 +1,42 @@
-// Package core holds Henbane's decision engine. It imports only the ports
-// package and the standard library — never any adapter, config, or transport
-// package.
+// Package core holds Henbane's decision engine: a composer over a list of
+// detectors. It imports only the ports package and the standard library.
 package core
 
 import (
 	"context"
-	"net/netip"
-	"strings"
 	"time"
 
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
-
-// Policy is the classifier configuration: the operator denylist.
-type Policy struct {
-	DenyCIDRs      []netip.Prefix
-	DenyUserAgents []string // matched case-insensitively as substrings
-}
 
 type clock func() time.Time
 
-// Engine is the decision engine.
+// Engine composes detectors into a decision.
 type Engine struct {
-	policy Policy
-	now    clock
+	detectors []ports.Detector
+	now       clock
 }
 
-// NewEngine builds an Engine applying policy. A zero Policy allows all traffic.
-func NewEngine(policy Policy) *Engine {
-	return &Engine{policy: policy, now: time.Now}
+// NewEngine builds an Engine running the given detectors in order. With no
+// detectors it allows all traffic.
+func NewEngine(detectors ...ports.Detector) *Engine {
+	return &Engine{detectors: detectors, now: time.Now}
 }
 
-// Decide blocks denylisted clients (by IP/CIDR, then user-agent) and otherwise
-// allows the request.
+// Decide runs every detector, raising the tier to the highest that fired and
+// collecting their signals, then maps the tier to an action.
 func (e *Engine) Decide(ctx context.Context, r ports.RequestView) (ports.Verdict, []ports.Event) {
-	if ip := r.IP(); ip.IsValid() {
-		for _, p := range e.policy.DenyCIDRs {
-			if p.Contains(ip) {
-				return e.emit(r, ports.ActionBlock, ports.TierBlocked, []ports.Signal{"denylist_ip"})
+	tier := ports.TierPass
+	var signals []ports.Signal
+	for _, d := range e.detectors {
+		if res, fired := d.Inspect(r); fired {
+			signals = append(signals, res.Signal)
+			if res.Tier > tier {
+				tier = res.Tier
 			}
 		}
 	}
-	if ua := r.UserAgent(); ua != "" {
-		lower := strings.ToLower(ua)
-		for _, deny := range e.policy.DenyUserAgents {
-			if deny != "" && strings.Contains(lower, strings.ToLower(deny)) {
-				return e.emit(r, ports.ActionBlock, ports.TierBlocked, []ports.Signal{"denylist_ua"})
-			}
-		}
-	}
-	return e.emit(r, ports.ActionAllow, ports.TierPass, nil)
-}
-
-func (e *Engine) emit(r ports.RequestView, action ports.Action, tier ports.Tier, signals []ports.Signal) (ports.Verdict, []ports.Event) {
+	action := actionForTier(tier)
 	v := ports.Verdict{Action: action, Tier: tier, Reasons: signals}
 	ev := ports.Event{
 		Time:      e.now(),
@@ -64,6 +48,20 @@ func (e *Engine) emit(r ports.RequestView, action ports.Action, tier ports.Tier,
 		Signals:   signals,
 	}
 	return v, []ports.Event{ev}
+}
+
+// actionForTier maps a tier to its action. Confirmed clients are detained in the
+// labyrinth (Tarpit); denylisted/blocked clients get a 403. Suspect is interim
+// Block until a later slice adds a challenge.
+func actionForTier(t ports.Tier) ports.Action {
+	switch t {
+	case ports.TierPass:
+		return ports.ActionAllow
+	case ports.TierConfirmed:
+		return ports.ActionTarpit
+	default:
+		return ports.ActionBlock
+	}
 }
 
 var _ ports.Engine = (*Engine)(nil)

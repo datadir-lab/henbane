@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -10,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/henbane-sh/henbane/internal/config"
+	"github.com/datadir-lab/henbane/internal/config"
 )
 
 func main() {
@@ -22,7 +23,20 @@ func main() {
 		os.Exit(2)
 	}
 
-	h, err := newHandler(cfg, logger)
+	// The caller owns the fail2ban log file so it is closed on shutdown rather
+	// than leaked from inside the handler constructor.
+	var fail2banW io.Writer
+	if cfg.Sinks.Fail2ban.Enabled {
+		f, err := os.OpenFile(cfg.Sinks.Fail2ban.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			logger.Error("open fail2ban log", "path", cfg.Sinks.Fail2ban.Path, "err", err)
+			os.Exit(2)
+		}
+		defer f.Close()
+		fail2banW = f
+	}
+
+	h, err := newHandler(cfg, logger, fail2banW)
 	if err != nil {
 		logger.Error("startup error", "err", err)
 		os.Exit(2)
@@ -40,7 +54,19 @@ func serve(cfg config.Config, h http.Handler, logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	srv := &http.Server{Addr: cfg.Listen, Handler: h}
+	srv := &http.Server{
+		Addr:    cfg.Listen,
+		Handler: h,
+		// ReadHeaderTimeout bounds the header read so a Slowloris client cannot
+		// hold connections open indefinitely; MaxHeaderBytes caps header size
+		// (and therefore X-Forwarded-For length). ReadTimeout/WriteTimeout are
+		// deliberately left unset so proxying large uploads or streaming
+		// responses is not cut off — slow request *bodies* are therefore not
+		// time-bounded here by design and are expected to be constrained upstream.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MiB
+	}
 
 	errCh := make(chan error, 1)
 	go func() {

@@ -2,21 +2,32 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 
-	"github.com/henbane-sh/henbane/internal/adapters/proxy"
-	"github.com/henbane-sh/henbane/internal/adapters/sink"
-	"github.com/henbane-sh/henbane/internal/clientip"
-	"github.com/henbane-sh/henbane/internal/config"
-	"github.com/henbane-sh/henbane/internal/core"
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/adapters/proxy"
+	"github.com/datadir-lab/henbane/internal/adapters/sink"
+	"github.com/datadir-lab/henbane/internal/clientip"
+	"github.com/datadir-lab/henbane/internal/config"
+	"github.com/datadir-lab/henbane/internal/core"
+	"github.com/datadir-lab/henbane/internal/detect/denylist"
+	"github.com/datadir-lab/henbane/internal/detect/honeypot"
+	"github.com/datadir-lab/henbane/internal/flagstore"
+	"github.com/datadir-lab/henbane/internal/generate/labyrinth"
+	"github.com/datadir-lab/henbane/internal/generate/poison"
+	"github.com/datadir-lab/henbane/internal/generate/poison/article"
+	"github.com/datadir-lab/henbane/internal/generate/poison/babble"
+	"github.com/datadir-lab/henbane/internal/generate/poison/canary"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
 
 // newHandler wires config into the resolver, engine, sinks, and proxy adapter.
-func newHandler(cfg config.Config, logger *slog.Logger) (http.Handler, error) {
+// If fail2banW is non-nil a fail2ban sink writing to it is added; the caller
+// owns that writer's lifecycle (opening and closing it).
+func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (http.Handler, error) {
 	upstream, err := url.Parse(cfg.Upstream)
 	if err != nil {
 		return nil, fmt.Errorf("invalid upstream %q: %w", cfg.Upstream, err)
@@ -34,20 +45,63 @@ func newHandler(cfg config.Config, logger *slog.Logger) (http.Handler, error) {
 		return nil, err
 	}
 
-	engine := core.NewEngine(core.Policy{
-		DenyCIDRs:      denyCIDRs,
-		DenyUserAgents: cfg.Deny.UserAgents,
-	})
+	var detectors []ports.Detector
+	if len(denyCIDRs) > 0 {
+		detectors = append(detectors, denylist.NewIP(denyCIDRs))
+	}
+	if len(cfg.Deny.UserAgents) > 0 {
+		detectors = append(detectors, denylist.NewUA(cfg.Deny.UserAgents))
+	}
+
+	if cfg.Honeypot.Enabled {
+		ttl, err := cfg.HoneypotTTL()
+		if err != nil {
+			return nil, err
+		}
+		max := cfg.Honeypot.MaxFlagged
+		if max <= 0 {
+			max = 100000
+		}
+		detectors = append(detectors, honeypot.New(cfg.Honeypot.Path, flagstore.New(max, ttl)))
+	}
+
+	engine := core.NewEngine(detectors...)
 	resolver := clientip.NewResolver(trusted)
 
 	sinks := []ports.Sink{sink.NewSlogSink(logger)}
-	if cfg.Sinks.Fail2ban.Enabled {
-		f, err := os.OpenFile(cfg.Sinks.Fail2ban.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			return nil, fmt.Errorf("open fail2ban log %q: %w", cfg.Sinks.Fail2ban.Path, err)
-		}
-		sinks = append(sinks, sink.NewFail2banSink(f))
+	if fail2banW != nil {
+		sinks = append(sinks, sink.NewFail2banSink(fail2banW))
 	}
 
-	return proxy.New(upstream, engine, sinks, logger, resolver), nil
+	poisoner, err := buildPoisoner(cfg)
+	if err != nil {
+		return nil, err
+	}
+	maze := labyrinth.New(cfg.Labyrinth.LinksPerPage, poisoner, cfg.Poison.ParagraphsPerPage)
+	return proxy.New(upstream, engine, sinks, logger, resolver, maze), nil
+}
+
+// buildPoisoner selects the configured poison strategy. corpus_path (babble only)
+// is read here so the poison packages never touch the filesystem or config.
+func buildPoisoner(cfg config.Config) (ports.Poisoner, error) {
+	switch cfg.Poison.Strategy {
+	case "", "babble":
+		var corpus []byte
+		if cfg.Poison.CorpusPath != "" {
+			b, err := os.ReadFile(cfg.Poison.CorpusPath)
+			if err != nil {
+				return nil, fmt.Errorf("read poison corpus %q: %w", cfg.Poison.CorpusPath, err)
+			}
+			corpus = b
+		}
+		return babble.New(corpus, cfg.Poison.Salt), nil
+	case "article":
+		return article.New(cfg.Poison.Salt), nil
+	case "canary":
+		return canary.New(cfg.Poison.Salt), nil
+	case "none":
+		return poison.None{}, nil
+	default:
+		return nil, fmt.Errorf("unknown poison.strategy %q", cfg.Poison.Strategy)
+	}
 }
