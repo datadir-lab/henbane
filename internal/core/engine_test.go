@@ -67,6 +67,14 @@ func TestDecideConfirmedTarpits(t *testing.T) {
 	}
 }
 
+func TestDecideSuspectChallenges(t *testing.T) {
+	e := NewEngine(fakeDet{res: ports.Result{Signal: "signal", Tier: ports.TierSuspect}, fired: true})
+	v, _ := e.Decide(context.Background(), fakeView{})
+	if v.Action != ports.ActionChallenge || v.Tier != ports.TierSuspect {
+		t.Errorf("verdict = %+v, want challenge/suspect", v)
+	}
+}
+
 func TestDecideKeepsHighestTierRegardlessOfOrder(t *testing.T) {
 	// Higher tier fires FIRST, lower SECOND: the max-accumulator must not
 	// downgrade to the later, lower tier.
