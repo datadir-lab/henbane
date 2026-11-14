@@ -26,6 +26,14 @@ type Labyrinth struct {
 	LinksPerPage int `yaml:"links_per_page"` // 0 => generator default (15)
 }
 
+// Poison configures the poison body text injected into maze pages.
+type Poison struct {
+	Strategy          string `yaml:"strategy"`            // babble|article|canary|none; "" => babble
+	ParagraphsPerPage int    `yaml:"paragraphs_per_page"` // 0 => default 3; clamped [0,20] downstream
+	CorpusPath        string `yaml:"corpus_path"`         // optional BYO corpus (babble); ignored by article/canary
+	Salt              string `yaml:"salt"`                // per-deployment; required for canary
+}
+
 // Config is the Henbane configuration.
 type Config struct {
 	Listen         string    `yaml:"listen"`
@@ -35,6 +43,7 @@ type Config struct {
 	Sinks          Sinks     `yaml:"sinks"`
 	Honeypot       Honeypot  `yaml:"honeypot"`
 	Labyrinth      Labyrinth `yaml:"labyrinth"`
+	Poison         Poison    `yaml:"poison"`
 }
 
 // Deny is the operator denylist.
@@ -161,6 +170,17 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.Labyrinth.LinksPerPage < 0 {
 		return Config{}, fmt.Errorf("labyrinth.links_per_page must be >= 0")
+	}
+	switch cfg.Poison.Strategy {
+	case "", "babble", "article", "canary", "none":
+	default:
+		return Config{}, fmt.Errorf("poison.strategy %q is not one of babble|article|canary|none", cfg.Poison.Strategy)
+	}
+	if cfg.Poison.ParagraphsPerPage < 0 {
+		return Config{}, fmt.Errorf("poison.paragraphs_per_page must be >= 0")
+	}
+	if cfg.Poison.Strategy == "canary" && cfg.Poison.Salt == "" {
+		return Config{}, fmt.Errorf("poison.salt is required when poison.strategy is canary")
 	}
 	return cfg, nil
 }
