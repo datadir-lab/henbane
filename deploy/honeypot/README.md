@@ -36,5 +36,17 @@ Invisible to humans, followed by greedy scrapers. Put it near the top of
 - Both emit a fail2ban line (`reason=honeypot` / `reason=flagged`) so you can
   escalate to a firewall ban using the shipped `deploy/fail2ban/` filter.
 
-Flags are kept in memory, bounded by `max_flagged` (oldest evicted past the
+Flags are kept in memory, bounded by `max_flagged` (an entry evicted past the
 cap), keyed on the resolved client IP.
+
+## Cautions
+
+- **Pick a unique, obscure trap path.** The prefix is matched as a substring, so
+  `/trap` also traps `/trapeze`, and `/` would trap (and flag) every request.
+  Use something like `/.well-known/hb-trap` that nothing else collides with.
+- **Reflected-abuse guard.** Because the trap URL is public, an attacker could try
+  to lure a victim's browser into loading it cross-site (e.g. `<img src=trap>`) to
+  get that victim flagged. Henbane ignores trap hits that carry
+  `Sec-Fetch-Site: cross-site`, which covers modern browsers. Keep `flag_ttl`
+  modest, and if you sit behind a shared-IP CDN set `trusted_proxies` so clients
+  resolve to their own IPs (otherwise one trap hit can flag everyone behind it).

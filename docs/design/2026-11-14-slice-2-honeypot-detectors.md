@@ -82,12 +82,16 @@ structurally (no import cycle):
 
 - `New(max int, ttl time.Duration) *Store`.
 - `Flag(ip)`: no-op on invalid IP; under a mutex, record `ip → expiry(now+ttl)`; **when at
-  `max`, evict expired entries first, then (if still full) the soonest-to-expire** — a hard
+  `max`, evict expired entries first, then (if still full) one arbitrary entry** — a hard
   memory bound so an attacker tripping the trap from many IPs cannot exhaust memory.
 - `Flagged(ip) bool`: under a mutex, present-and-unexpired (lazy-delete on expiry).
-- Keyed on the resolved client IP → an attacker can only flag *themselves* (self-harm);
-  flagging a third party requires spoofing the resolved IP, which `clientip` already prevents
-  for untrusted connections.
+- Keyed on the resolved client IP. An attacker cannot *forge* a victim's IP (the `clientip`
+  resolver is spoofing-hardened), but the trap path is public, so an attacker CAN lure a
+  victim's browser into fetching it cross-site and get that victim flagged. The honeypot
+  detector therefore ignores trap hits carrying `Sec-Fetch-Site: cross-site` (browser-loaded
+  cross-site subresources). Residual risks the operator owns: a shared-IP CDN front (one hit
+  flags everyone behind it — configure `trusted_proxies` correctly) and a modest `flag_ttl`.
+- Interface boundary so a shared *Poison Garden* feed can later implement the same `Store`.
 - Interface boundary so a shared *Poison Garden* feed can later implement the same `Store`.
 
 ## Configuration
