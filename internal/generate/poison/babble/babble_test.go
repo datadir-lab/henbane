@@ -70,3 +70,19 @@ func TestEmbeddedDefaultUsable(t *testing.T) {
 		t.Errorf("embedded default produced %v", got)
 	}
 }
+
+func TestDegenerateCorpusTerminates(t *testing.T) {
+	// A pathological two-word corpus leaves the only start with an empty chain.
+	// Generation must terminate (iteration-capped) and return bounded output
+	// rather than spinning forever. Before the cap, this test hangs.
+	b := New([]byte("only two"), "s")
+	got := b.Paragraphs(1, 2)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	for _, p := range got {
+		if w := len(strings.Fields(p)); w == 0 || w > 80 {
+			t.Errorf("degenerate paragraph word count %d out of (0,80]", w)
+		}
+	}
+}
