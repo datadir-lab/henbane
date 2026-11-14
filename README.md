@@ -10,7 +10,7 @@
 <p align="center">Self-hosted gateway that keeps abusive AI scrapers off your site without taxing real visitors</p>
 
 <p align="center">
-  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-2f5233">
+  <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-2f5233">
   <img alt="Go 1.26+" src="https://img.shields.io/badge/go-1.26%2B-2f5233">
   <img alt="Dependencies: stdlib + yaml" src="https://img.shields.io/badge/deps-stdlib%20%2B%20yaml-2f5233">
   <img alt="Status: early development" src="https://img.shields.io/badge/status-early%20development-8fae63">
@@ -163,4 +163,10 @@ The full design, including the ports-and-adapters layout, the decision contract,
 
 ## License
 
-[MIT](LICENSE)
+Henbane is free software under the **GNU AGPL-3.0** — see [LICENSE](LICENSE).
+Copyright © 2026 datadir s. r. o.
+
+The AGPL is deliberate: run a modified Henbane as a network service and you must
+share your changes. The open gateway stays a commons; a commercial control plane
+(dashboard, analytics, federation) is offered separately — see
+[`docs/STRATEGY.md`](docs/STRATEGY.md).
