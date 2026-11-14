@@ -341,3 +341,59 @@ func TestPoWOffPassesThrough(t *testing.T) {
 		t.Errorf("body = %q, want upstream body (pow off)", string(body))
 	}
 }
+
+func TestRobotsTxtServedWithTrapDisallow(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "upstream body")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{
+		Upstream: upstream.URL,
+		Honeypot: config.Honeypot{Enabled: true, Path: "/.well-known/hb-trap", MaxFlagged: 100},
+		Robots:   config.Robots{Serve: true, Disallow: []string{"/private"}},
+	}
+	h, err := newHandler(cfg, logger, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	resp, _ := http.Get(front.URL + "/robots.txt")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("content-type = %q, want text/plain", ct)
+	}
+	for _, want := range []string{"User-agent: *", "Disallow: /.well-known/hb-trap", "Disallow: /private"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("robots.txt missing %q; got:\n%s", want, string(body))
+		}
+	}
+	// Non-robots paths still proxy to the upstream.
+	r2, _ := http.Get(front.URL + "/page")
+	b2, _ := io.ReadAll(r2.Body)
+	r2.Body.Close()
+	if string(b2) != "upstream body" {
+		t.Errorf("non-robots path = %q, want upstream body", string(b2))
+	}
+}
+
+func TestRobotsTxtNotServedWhenDisabled(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "UPSTREAM-ROBOTS")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Upstream: upstream.URL, Robots: config.Robots{Serve: false}}
+	h, _ := newHandler(cfg, logger, nil)
+	front := httptest.NewServer(h)
+	defer front.Close()
+	resp, _ := http.Get(front.URL + "/robots.txt")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "UPSTREAM-ROBOTS" {
+		t.Errorf("robots disabled: body = %q, want upstream (proxied)", string(body))
+	}
+}
