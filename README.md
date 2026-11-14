@@ -50,6 +50,24 @@ go build -o henbane ./cmd/henbane
 
 Flags: `--upstream` (required), `--listen` (default `:8080`), `--config`. Flag values override the config file. The binary is static (`CGO_ENABLED=0`); a distroless `Dockerfile` is included.
 
+## Install
+
+**Go:**
+
+```bash
+go install github.com/datadir-lab/henbane/cmd/henbane@latest
+```
+
+**Docker:**
+
+```bash
+docker pull ghcr.io/datadir-lab/henbane:latest
+docker run -p 8080:8080 ghcr.io/datadir-lab/henbane --upstream http://host.docker.internal:3000
+```
+
+**Binaries:** download the archive for your platform from the
+[latest release](https://github.com/datadir-lab/henbane/releases/latest), then verify it (below).
+
 ## Configuration
 
 Zero-config works: a single `--upstream` passes all traffic through. For anything more, point `--config` at a YAML file. Every key below is one henbane reads today.
@@ -173,6 +191,45 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 ```bash
 go build ./...
 go test ./...
+```
+
+## Verifying releases
+
+Every release ships a syft SBOM, a cosign keyless signature, and SLSA L3 provenance.
+
+Verify the checksums signature (binaries):
+
+```bash
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature checksums.txt.sig \
+  --certificate-identity-regexp '^https://github.com/datadir-lab/henbane/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+```
+
+Verify binary provenance (SLSA):
+
+```bash
+slsa-verifier verify-artifact henbane_<ver>_<os>_<arch>.tar.gz \
+  --provenance-path multiple.intoto.jsonl \
+  --source-uri github.com/datadir-lab/henbane
+```
+
+Verify the image signature and provenance:
+
+```bash
+cosign verify ghcr.io/datadir-lab/henbane:<ver> \
+  --certificate-identity-regexp '^https://github.com/datadir-lab/henbane/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+cosign verify-attestation ghcr.io/datadir-lab/henbane:<ver> \
+  --type spdxjson \
+  --certificate-identity-regexp '^https://github.com/datadir-lab/henbane/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+slsa-verifier verify-image ghcr.io/datadir-lab/henbane:<ver> \
+  --source-uri github.com/datadir-lab/henbane
 ```
 
 ## Design and brand
