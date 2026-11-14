@@ -40,3 +40,15 @@ func TestChildHrefsUnderParent(t *testing.T) {
 		t.Errorf("child hrefs under /parent/ = %d, want 5\n%s", n, page)
 	}
 }
+
+func TestPathIsEscaped(t *testing.T) {
+	// The request path is the only attacker-controlled value reflected into the
+	// page (via the href attribute). html/template must escape it so a crafted
+	// path cannot break out of the attribute into markup.
+	page := render(t, New(3), `/x"><script>alert(1)</script>`)
+	for _, bad := range []string{`"><script>`, `<script>alert`, `</script>`} {
+		if strings.Contains(page, bad) {
+			t.Errorf("unescaped injection %q in maze output:\n%s", bad, page)
+		}
+	}
+}

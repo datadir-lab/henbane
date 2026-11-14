@@ -43,6 +43,9 @@ var pageTmpl = template.Must(template.New("maze").Parse(
 // given path (stable re-crawl); each page links to distinct child pages, so the
 // maze is unbounded.
 func (g *Generator) WritePage(w io.Writer, path string) error {
+	// math/rand (v1) with an explicit source is deliberate: it produces
+	// cross-version-stable output, so re-crawls and multiple instances see
+	// identical mazes. Do NOT switch to math/rand/v2 — it would break determinism.
 	rng := rand.New(rand.NewSource(seedFor(path)))
 	base := strings.TrimRight(path, "/")
 	links := make([]link, g.links)
