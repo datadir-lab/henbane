@@ -90,3 +90,17 @@ func TestParseRejectsBadCIDR(t *testing.T) {
 		t.Fatal("expected error for invalid CIDR")
 	}
 }
+
+func TestParseRejectsBroadTrustedProxy(t *testing.T) {
+	for _, cidr := range []string{"0.0.0.0/0", "::/0"} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "henbane.yaml")
+		body := "upstream: \"http://a:1\"\ntrusted_proxies: [\"" + cidr + "\"]\n"
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse([]string{"-config", path}); err == nil {
+			t.Errorf("trusted_proxies %q: expected rejection (trusting all re-enables spoofing)", cidr)
+		}
+	}
+}

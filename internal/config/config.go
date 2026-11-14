@@ -102,8 +102,14 @@ func Parse(args []string) (Config, error) {
 	if cfg.Upstream == "" {
 		return Config{}, fmt.Errorf("upstream is required (set --upstream or upstream: in config)")
 	}
-	if _, err := cfg.TrustedPrefixes(); err != nil {
+	tp, err := cfg.TrustedPrefixes()
+	if err != nil {
 		return Config{}, err
+	}
+	for _, p := range tp {
+		if p.Bits() == 0 {
+			return Config{}, fmt.Errorf("trusted_proxies %q is too broad: trusting all addresses re-enables X-Forwarded-For spoofing", p)
+		}
 	}
 	if _, err := cfg.DenyPrefixes(); err != nil {
 		return Config{}, err
