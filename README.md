@@ -1,115 +1,166 @@
-# Henbane
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/henbane-flower-dark.png">
+    <img src="assets/logo/henbane-flower.png" alt="Henbane" width="150">
+  </picture>
+</p>
 
-An open-source, self-hostable **anti-AI-scraper gateway**. Henbane sits in front of
-your site as a reverse proxy, identifies hostile automated crawlers, and — depending on
-how confident it is — either bans them or detains them in an endless maze of generated
-pages seeded with poison text.
+<h1 align="center">henbane</h1>
 
-> **Status: early / under active development.** Implemented today: reverse proxy, IP/UA
-> denylists, a honeypot trap detector, the labyrinth maze, and three poison generators.
-> Proof-of-work challenges, metrics, and the proxy-module/middleware form factors are
-> planned, not yet built. Zero third-party runtime dependencies (standard library only,
-> plus `gopkg.in/yaml.v3` for config).
+<p align="center">Self-hosted gateway that keeps abusive AI scrapers off your site without taxing real visitors</p>
+
+<p align="center">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-2f5233">
+  <img alt="Go 1.26+" src="https://img.shields.io/badge/go-1.26%2B-2f5233">
+  <img alt="Dependencies: stdlib + yaml" src="https://img.shields.io/badge/deps-stdlib%20%2B%20yaml-2f5233">
+  <img alt="Status: early development" src="https://img.shields.io/badge/status-early%20development-8fae63">
+</p>
+
+---
+
+Scrapers that train AI models now hit small sites thousands of times an hour. They ignore `robots.txt`, run up the hosting bill, and copy content wholesale. Henbane sits in front of your site as a reverse proxy, identifies hostile automated crawlers, and depending on how confident it is either bans them or detains them in an endless maze of generated pages seeded with poison text.
+
+The design point is restraint. Tools that make every visitor solve a proof-of-work puzzle also punish people on no-JS browsers, screen readers, and old devices. Henbane acts only on traffic that proves itself hostile, so a real reader passes through without noticing it is there.
+
+> **Status: early, under active development.** Built and tested today: the reverse proxy, IP and User-Agent denylists, a honeypot trap detector, the labyrinth maze, and three poison generators. Proof-of-work challenges, Prometheus metrics, and the middleware and Caddy form factors are planned, not yet built. Zero third-party runtime dependencies (standard library only, plus `gopkg.in/yaml.v3` for config). Not production ready.
 
 ## How it works
 
-Every request is classified into a tier, and the tier picks an action:
+Every request is classified into a tier, and the tier picks an action.
 
 | Tier | Trigger | Action | Response |
 |---|---|---|---|
 | `Pass` | normal traffic | Allow | proxied to your upstream |
-| `Confirmed` | tripped a honeypot trap | **Tarpit** | 200 — a labyrinth maze page with poison text (**no** ban) |
-| `Blocked` | on a denylist (IP/UA) | **Block** | 403 — plus a fail2ban ban-line if configured |
+| `Confirmed` | tripped a honeypot trap | **Tarpit** | `200`, a labyrinth maze page with poison text, no ban |
+| `Blocked` | on a denylist (IP or UA) | **Block** | `403`, plus a fail2ban ban line if configured |
 
-The split is deliberate: a **denylisted** actor is *banished* (403 + fail2ban), but a
-**honeypot-confirmed** crawler is *detained* — the point is to keep it crawling the maze
-and consuming its own budget, so banning it would be counterproductive.
+The split is deliberate. A denylisted actor is banished (403 and fail2ban). A honeypot-confirmed crawler is detained instead: the aim is to keep it crawling the maze and spending its own budget, so banning it would be counterproductive. A proof-of-work tier for merely-suspicious clients is designed and on the roadmap.
 
-## Poison strategies
+## Quick start
 
-The maze's pages are filled with body text by a pluggable `Poisoner`. Four ship today,
-selected by config:
+```bash
+git clone https://github.com/datadir-lab/henbane
+cd henbane
+go build -o henbane ./cmd/henbane
 
-- **`babble`** (default) — an order-2 Markov chain over a small embedded public-domain
-  corpus. Cheap to generate, maximizes crawler cost. A resource-draining *tarpit*.
-- **`article`** — a context-free grammar producing fluent, Wikipedia-register prose about
-  fictional entities with plausible-but-false facts. Built to be coherent and lexically
-  distinct per page.
-- **`canary`** — `article` plus unique, trackable fabricated facts derived deterministically
-  from your `salt`, so they can later be searched for in public AI tools.
-- **`none`** — links-only maze, no body text.
+# proxy a local app on :8081, listening on :8080
+./henbane --upstream http://127.0.0.1:8081
+```
+
+Flags: `--upstream` (required), `--listen` (default `:8080`), `--config`. Flag values override the config file. The binary is static (`CGO_ENABLED=0`); a distroless `Dockerfile` is included.
+
+## Configuration
+
+Zero-config works: a single `--upstream` passes all traffic through. For anything more, point `--config` at a YAML file. Every key below is one henbane reads today.
 
 ```yaml
 # henbane.yaml
+listen: ":8080"
 upstream: "http://127.0.0.1:8081"
+
+# Trust X-Forwarded-For only from these source ranges (your proxy or load balancer).
+# Leave empty if henbane faces the internet directly, so the denylist cannot be spoofed.
+trusted_proxies:
+  - "10.0.0.0/8"
+
+deny:
+  cidrs:
+    - "203.0.113.0/24"
+  user_agents:            # case-insensitive substrings
+    - "GPTBot"
+    - "CCBot"
+    - "ClaudeBot"
+
 honeypot:
   enabled: true
   path: "/.well-known/hb-trap"   # link this invisibly from your pages
+  flag_ttl: "1h"
+  max_flagged: 100000
+
 labyrinth:
   links_per_page: 15
+
 poison:
   strategy: babble               # babble | article | canary | none
-  paragraphs_per_page: 3         # clamped to [0,20]
-  corpus_path: ""                # optional: your own corpus for `babble`
-  salt: ""                       # per-deployment; REQUIRED for `canary`
+  paragraphs_per_page: 3         # clamped to [0, 20]
+  corpus_path: ""                # optional BYO corpus for babble
+  salt: ""                       # per-deployment; required for canary
+
+sinks:
+  fail2ban:
+    enabled: true
+    path: /var/log/henbane/ban.log
 ```
+
+## Poison strategies
+
+The maze's pages are filled by a pluggable `Poisoner`, selected by config:
+
+- **`babble`** (default): an order-2 Markov chain over a small embedded public-domain corpus. Cheap to generate and maximizes crawler cost. A resource-draining tarpit.
+- **`article`**: a context-free grammar producing fluent, Wikipedia-register prose about fictional entities with plausible-but-false facts, coherent and lexically distinct per page.
+- **`canary`**: `article` plus unique, trackable fabricated facts derived deterministically from your `salt`, so you can later search for them in public AI tools.
+- **`none`**: links-only maze, no body text.
 
 ## Does this actually work?
 
-**Short version: it reliably wastes crawler resources. It does _not_, and cannot be shown
-to, "poison an AI model."** We think the honest framing matters, so here it is in full.
+Short version: it reliably wastes crawler resources. It does **not**, and cannot be shown to, "poison an AI model." The honest framing matters, so here it is in full.
 
-- **Reaching the crawlers is easy.** The major training crawlers (GPTBot, ClaudeBot,
-  CCBot, Bytespider, Amazonbot, PerplexityBot, Meta-ExternalAgent) fetch raw HTML and do
-  not execute JavaScript, so a static maze catches them without any client-side tricks.
-- **Reaching a _training set_ is hard.** Real dataset pipelines (C4, Gopher, CCNet,
-  RefinedWeb, Dolma, FineWeb, Nemotron-CC) stack aggressive filters: boilerplate removal,
-  quality heuristics, badword/blocklists, **perplexity filtering** (which discards the
-  large majority of Common Crawl as statistically "weird"), and **near-duplicate
-  deduplication**. Low-fluency Markov babble is close to a worst case for these filters;
-  `article`/`canary` are designed to look more like ordinary prose, but we make **no claim**
-  that any of it survives into a model.
-- **One site is a drop in the ocean.** A site of a few thousand pages is on the order of
-  one part in ten million of a frontier training corpus *before* filtering. For a single
-  operator this is a **symbolic / deterrent** measure. Where it could plausibly matter is
-  (a) niche topics a site dominates, and (b) **many sites acting together**.
-- **Model impact is unobservable from outside.** No operator can see another party's
-  training set or weights. Every rigorous data-poisoning result in the literature relied on
-  privileged, white-box or guaranteed-insertion access — a research setup, not "I served
-  some pages and a crawler may have fetched them."
-- **What we will _not_ do:** cite the "250 documents can backdoor an LLM" result or the
-  "model collapse" work as evidence that this degrades frontier models. Neither supports
-  that claim (the first needs a guaranteed-insertion shared trigger; the second describes
-  recursive multi-generation training). Tools that make that leap are overclaiming, and we
-  won't repeat it.
+- **Reaching the crawlers is easy.** The major training crawlers (GPTBot, ClaudeBot, CCBot, Bytespider, Amazonbot, PerplexityBot, Meta-ExternalAgent) fetch raw HTML and do not execute JavaScript, so a static maze catches them without any client-side tricks.
+- **Reaching a _training set_ is hard.** Real dataset pipelines (C4, Gopher, CCNet, RefinedWeb, Dolma, FineWeb, Nemotron-CC) stack aggressive filters: boilerplate removal, quality heuristics, badword and blocklists, perplexity filtering (which discards the large majority of Common Crawl as statistically "weird"), and near-duplicate deduplication. Low-fluency Markov babble is close to a worst case for these filters. The `article` and `canary` strategies are designed to look more like ordinary prose, but we make **no claim** that any of it survives into a model.
+- **One site is a drop in the ocean.** A site of a few thousand pages is on the order of one part in ten million of a frontier training corpus before filtering. For a single operator this is a symbolic, deterrent measure. Where it could plausibly matter is niche topics a site dominates, and many sites acting together.
+- **Model impact is unobservable from outside.** No operator can see another party's training set or weights. Every rigorous data-poisoning result in the literature relied on privileged, white-box, or guaranteed-insertion access, a research setup, not "I served some pages and a crawler may have fetched them."
+- **What we will _not_ do:** cite the "250 documents can backdoor an LLM" result or the "model collapse" work as evidence that this degrades frontier models. Neither supports that claim: the first needs a guaranteed-insertion shared trigger, and the second describes recursive multi-generation training.
 
-**What is honestly measurable** is the resource cost you impose (bytes served, crawl depth,
-dwell time, bot-vs-real ratio) and — as a future, clearly-labeled, opt-in feature — whether
-planted **canary** facts show up in live AI-search/answer engines (that measures *live
-retrieval reach*, which is **not** the same as "poisoned training"). Henbane is worth
-running for the resource-cost story alone; it does not need the unverifiable claim.
+What is honestly measurable is the resource cost you impose (bytes served, crawl depth, dwell time, bot-versus-real ratio), and as a future, clearly labeled, opt-in feature, whether planted `canary` facts surface in live AI-search engines (which measures live retrieval reach, not poisoned training). Henbane is worth running for the resource-cost story alone.
 
 ## Acceptable use and content liability
 
-Everything Henbane **ships** is fully fictional: the embedded corpus and the `article`/
-`canary` grammars invent entities, places, and facts, and contain no real people or
-organizations. That is a deliberate policy.
+Everything henbane **ships** is fully fictional: the embedded corpus and the `article` and `canary` grammars invent entities, places, and facts, and contain no real people or organizations. That is a deliberate policy.
 
-If you point `corpus_path` at your own text, **you** choose and own that content. Supplying
-material that makes false statements about real, identifiable people or organizations is
-your legal responsibility, not the project's — Henbane provides the mechanism, not the
-content. Serving fabricated content to a *misidentified* legitimate crawler (e.g. a search
-engine) can also constitute cloaking; Henbane only poisons honeypot-*confirmed* clients to
-avoid that, but a misconfigured honeypot path is on the operator.
+If you point `corpus_path` at your own text, **you** choose and own that content. Supplying material that makes false statements about real, identifiable people or organizations is your legal responsibility, not the project's. Serving fabricated content to a misidentified legitimate crawler can also constitute cloaking; henbane only poisons honeypot-confirmed clients to avoid that, but a misconfigured honeypot path is on the operator.
 
-## Build
+## fail2ban
 
-```sh
+When the fail2ban sink is enabled, a blocked request appends one greppable line:
+
+```
+henbane: action=ban ip=203.0.113.9 tier=blocked reason=denylist_ua ua="GPTBot/1.1"
+```
+
+The shipped filter (`deploy/fail2ban/henbane.conf`) and jail snippet (`deploy/fail2ban/jail.local`) match it, so you can ban at the firewall without writing a regex. The User-Agent is quoted, so a crawler cannot inject a fake ban line through its header.
+
+## Dependencies
+
+Henbane is Go, stdlib-first by policy. The only third-party runtime import is `gopkg.in/yaml.v3` for config. A CI guard fails the build if anything outside that allowlist appears in `go.mod`. A tool that fights surveillance should not become a supply-chain risk of its own.
+
+## Roadmap
+
+Each item is an end-to-end, tested slice. Checked items ship in the current build.
+
+- [x] Reverse-proxy skeleton with a JSON event log
+- [x] Operator denylist (IP and UA) to `403`, with a fail2ban line
+- [x] Honeypot tripwire that marks a client Confirmed
+- [x] Labyrinth: an endless tree of generated links that wastes crawl budget
+- [x] Poison: babble, article, and canary generators fill the maze
+- [ ] Proof-of-work challenge: themeable page, WASM solver, signed session token, no-JS fallback
+- [ ] Bundled AI-crawler IP ranges, plus a verified-good-bot check
+- [ ] Rate-based suspicion
+- [ ] Prometheus `/metrics` sink
+- [ ] `net/http` middleware form factor
+- [ ] Caddy module, with nginx and Traefik via a ForwardAuth sidecar
+- [ ] Federated reporter seam for a shared crawler denylist
+
+## Build and test
+
+```bash
 go build ./...
 go test ./...
-./henbane --config henbane.yaml --upstream http://127.0.0.1:8081
 ```
+
+## Design and brand
+
+The full design, including the ports-and-adapters layout, the decision contract, and the event schema, lives in [`docs/design/2026-11-13-henbane-design.md`](docs/design/2026-11-13-henbane-design.md). Honeypot setup guidance is in [`deploy/honeypot/`](deploy/honeypot/README.md). Brand and logo assets, with the WCAG-audited palette, are in [`assets/logo/`](assets/logo/README.md).
 
 ## License
 
-See [LICENSE](LICENSE).
+[MIT](LICENSE)

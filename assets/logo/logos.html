@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>henbane · the mark</title>
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="fonts.css">
+<style>
+  :root{
+    --paper:#f0eedd; --ink:#1b1d14; --faded:#64664f; --rule:#b4bd9c; --oxblood:#33512f; --green:#33512f;
+    --serif:'IMFell',"Iowan Old Style",Georgia,serif; --black:'Unifraktur','IMFell',serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#d8dcc2;color:var(--ink);font-family:var(--serif);font-size:18px;line-height:1.5}
+  .sheet{max-width:1020px;margin:30px auto;background:var(--paper);
+    border:1px solid var(--rule);box-shadow:0 1px 0 #d8cfb8, 0 18px 40px rgba(40,34,22,.14);
+    padding:52px 58px 40px;position:relative}
+  .accession{position:absolute;top:22px;right:26px;font-family:var(--mono);font-size:12px;color:var(--faded)}
+  .accession b{color:var(--oxblood);font-weight:400}
+
+  /* asymmetric split: specimen left (wider), label right */
+  .mount{display:grid;grid-template-columns:1.35fr 1fr;gap:46px;align-items:start;margin-top:14px}
+  .specimen{position:relative;padding:14px}
+  .specimen img{width:100%;display:block}
+  /* photo-mount corners */
+  .specimen i{position:absolute;width:26px;height:26px;border:2px solid #b9ad8f}
+  .specimen .tl{top:0;left:0;border-right:0;border-bottom:0}
+  .specimen .tr{top:0;right:0;border-left:0;border-bottom:0}
+  .specimen .bl{bottom:0;left:0;border-right:0;border-top:0}
+  .specimen .br{bottom:0;right:0;border-left:0;border-top:0}
+
+  .label{padding-top:8px}
+  .label .name{font-family:var(--black);font-size:58px;line-height:.92;margin:0}
+  .label .bino{font-style:italic;font-size:21px;color:var(--ink);margin:8px 0 0}
+  .label .fam{color:var(--faded);font-size:16px;margin:2px 0 22px}
+  .label dl{margin:0;border-top:1px solid var(--rule);padding-top:16px}
+  .label dt{font-size:13px;color:var(--faded);font-variant:small-caps;letter-spacing:.02em}
+  .label dd{margin:0 0 15px;font-size:17px}
+  .label .stamp{margin-top:10px;display:flex;align-items:center;gap:12px;color:var(--oxblood)}
+  .label .stamp svg{width:44px;height:44px}
+  .label .stamp span{font-style:italic;font-size:15px;color:var(--faded)}
+
+  .note{margin:40px 0 0;border-top:1px solid var(--rule);padding-top:20px;
+    display:flex;gap:30px;align-items:center;flex-wrap:wrap}
+  .note p{margin:0;max-width:52ch;color:#4a4134;font-size:16px}
+  .uses{display:flex;gap:26px;align-items:flex-end;margin-left:auto}
+  .uses figure{margin:0;text-align:center}
+  .uses figcaption{font-family:var(--mono);font-size:10.5px;color:var(--faded);margin-top:6px}
+  .uses .d{background:#14120f;padding:6px;display:inline-block}
+  .uses img.sm{width:76px;display:block}
+  .uses img.xs{width:32px;display:block}
+
+  /* dark footer strip: the reversed mark in context */
+  .reverse{max-width:1020px;margin:0 auto 46px;background:#121710;color:#e7ecd8;
+    display:flex;align-items:center;gap:26px;padding:22px 30px;border:1px solid #27301f}
+  .reverse img{width:66px;height:66px;display:block}
+  .reverse .rn{font-family:var(--black);font-size:34px;line-height:1}
+  .reverse .rb{font-style:italic;color:#9a8f78;font-size:15px;margin-top:2px}
+  .reverse .rt{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:#8c9670;text-align:right;line-height:1.7}
+</style>
+
+<svg style="display:none">
+  <symbol id="sigil" viewBox="0 0 100 100">
+    <g fill="none" stroke="currentColor" stroke-width="3.2">
+      <circle cx="50" cy="52" r="33"/><polygon points="31,43 69,43 50,77"/>
+      <path d="M50,12 L50,60"/><path d="M41,29 L59,29"/>
+    </g>
+    <circle cx="50" cy="13" r="4.2" fill="currentColor"/><circle cx="50" cy="52" r="2.8" fill="currentColor"/>
+  </symbol>
+</svg>
+
+<div class="sheet">
+  <div class="accession">PLATE <b>073</b> · Köhler ref.</div>
+
+  <div class="mount">
+    <div class="specimen">
+      <i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i>
+      <img src="henbane-flower.png" alt="Henbane mark: halftone flower in a double border">
+    </div>
+
+    <div class="label">
+      <p class="name">henbane</p>
+      <p class="fam">Fam. Solanaceae</p>
+      <dl>
+        <dt>the mark</dt>
+        <dd>A single bloom segmented out of a photograph, rendered in two greens so the veins and dark throat read.</dd>
+        <dt>in one line</dt>
+        <dd>A self-hosted gate that keeps AI scrapers off a site without taxing its readers.</dd>
+        <dt>colour</dt>
+        <dd>Green on green: light petals, dark veins. Cut out clean, no border; sits on any ground and reverses onto night.</dd>
+      </dl>
+      <div class="stamp">
+        <svg><use href="#sigil"/></svg>
+        <span>drawn from the plant, not an icon set</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <p>The detail is the point: the bloom is segmented out of a real photograph (OpenCV GrabCut), not drawn, so the mark keeps the flower's own net-veining. Two greens separate petal from vein, and it's cut out clean against whatever it sits on.</p>
+    <div class="uses">
+      <figure><img class="sm" src="henbane-flower.png" alt=""><figcaption>76&nbsp;px</figcaption></figure>
+      <figure><div class="d"><img class="sm" src="henbane-flower-dark.png" alt=""></div><figcaption>reversed</figcaption></figure>
+      <figure><img class="xs" src="henbane-flower-128.png" alt=""><figcaption>32&nbsp;px</figcaption></figure>
+    </div>
+  </div>
+</div>
+
+<div class="reverse">
+  <img src="henbane-flower-dark.png" alt="">
+  <div>
+    <div class="rn">henbane</div>
+  </div>
+  <div class="rt">two greens, two grounds<br>segmented from a photograph</div>
+</div>
