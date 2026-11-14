@@ -53,4 +53,4 @@ scope matching `[a-z0-9/-]+`. Allowed types: `feat`, `fix`, `docs`, `style`,
 ## License
 
 By contributing, you agree that your contributions are licensed under the
-project's [MIT License](LICENSE).
+project's [GNU AGPL-3.0 License](LICENSE).
