@@ -11,3 +11,7 @@
 # logo/branding scratch
 .playwright-mcp/
 assets/logo/shot-*.png
+
+# research study (regenerable)
+research/.venv/
+research/data/samples.jsonl
