@@ -1,0 +1,27 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.go"
+      run: gofmt -l -w {staged_files}
+      stage_fixed: true
+    vet:
+      run: go vet ./...
+    arch:
+      run: go test ./internal/arch/...
+    unit:
+      run: go test -short ./...
+
+pre-push:
+  commands:
+    test:
+      run: go test -race -cover ./...
+    vuln:
+      run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+    build:
+      run: go build ./...
+
+commit-msg:
+  commands:
+    conventional:
+      run: conform enforce --commit-msg-file {1}

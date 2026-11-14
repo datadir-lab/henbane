@@ -1,0 +1,22 @@
+policies:
+  - type: commit
+    spec:
+      header:
+        length: 72
+        imperative: false
+        case: lower
+      conventional:
+        types:
+          - feat
+          - fix
+          - docs
+          - style
+          - refactor
+          - perf
+          - test
+          - build
+          - ci
+          - chore
+          - revert
+        scopes: []
+        descriptionLength: 72
