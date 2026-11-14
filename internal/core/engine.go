@@ -34,7 +34,7 @@ func NewEngine(policy Policy) *Engine {
 // Decide blocks denylisted clients (by IP/CIDR, then user-agent) and otherwise
 // allows the request.
 func (e *Engine) Decide(ctx context.Context, r ports.RequestView) (ports.Verdict, []ports.Event) {
-	if ip := r.IP(); ip.IsValid() {
+	if ip := r.IP().Unmap(); ip.IsValid() {
 		for _, p := range e.policy.DenyCIDRs {
 			if p.Contains(ip) {
 				return e.emit(r, ports.ActionBlock, ports.TierBlocked, []ports.Signal{"denylist_ip"})

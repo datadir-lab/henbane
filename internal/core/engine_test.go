@@ -57,6 +57,15 @@ func TestDecideBlocksDenyCIDR(t *testing.T) {
 	}
 }
 
+func TestDecideBlocksDenyCIDRMappedIPv6(t *testing.T) {
+	e := NewEngine(Policy{DenyCIDRs: []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")}})
+	verdict, _ := e.Decide(context.Background(),
+		fakeView{ip: netip.MustParseAddr("::ffff:203.0.113.9"), ua: "curl/8", path: "/p"})
+	if verdict.Action != ports.ActionBlock {
+		t.Errorf("action = %v, want block (IPv4-mapped-IPv6 must match IPv4 deny CIDR)", verdict.Action)
+	}
+}
+
 func TestDecideBlocksDenyUACaseInsensitive(t *testing.T) {
 	e := NewEngine(Policy{DenyUserAgents: []string{"GPTBot"}})
 	verdict, _ := e.Decide(context.Background(),

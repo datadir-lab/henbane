@@ -97,5 +97,5 @@ func parseAddr(s string) netip.Addr {
 	if err != nil {
 		return netip.Addr{}
 	}
-	return addr.WithZone("")
+	return addr.Unmap().WithZone("")
 }

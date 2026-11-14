@@ -38,6 +38,8 @@ func TestCorePurity(t *testing.T) {
 				t.Errorf("%s illegally depends on adapter package %s", target, dep)
 			case strings.HasSuffix(dep, "/internal/config"):
 				t.Errorf("%s illegally depends on config package %s", target, dep)
+			case strings.HasSuffix(dep, "/internal/clientip"):
+				t.Errorf("%s illegally depends on clientip package %s", target, dep)
 			}
 		}
 	}
