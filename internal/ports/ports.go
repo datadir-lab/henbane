@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// Action is the disposition the engine assigns to a request.
 type Action int
 
 const (
@@ -36,6 +37,7 @@ func (a Action) String() string {
 	}
 }
 
+// Tier is the suspicion level the classifier assigns to a request.
 type Tier int
 
 const (

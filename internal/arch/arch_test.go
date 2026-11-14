@@ -26,8 +26,7 @@ func pkgInfo(t *testing.T, importPath string) listPkg {
 }
 
 func TestCorePurity(t *testing.T) {
-	const mod = "github.com/henbane-sh/henbane"
-	targets := []string{mod + "/internal/ports", mod + "/internal/core"}
+	targets := []string{mainModule + "/internal/ports", mainModule + "/internal/core"}
 
 	for _, target := range targets {
 		info := pkgInfo(t, target)

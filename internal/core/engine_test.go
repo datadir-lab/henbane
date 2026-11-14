@@ -39,6 +39,9 @@ func TestDecideAllowsEverything(t *testing.T) {
 	if ev.Action != ports.ActionAllow || ev.Path != "/x" || ev.UserAgent != "curl/8" {
 		t.Errorf("event = %+v, want allow /x curl/8", ev)
 	}
+	if ev.Tier != ports.TierPass {
+		t.Errorf("event Tier = %v, want pass", ev.Tier)
+	}
 	if ev.IP != v.ip {
 		t.Errorf("event IP = %v, want %v", ev.IP, v.ip)
 	}
