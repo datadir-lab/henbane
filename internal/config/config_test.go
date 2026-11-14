@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -48,8 +49,7 @@ func TestLoadFileMalformedYAML(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for malformed YAML")
 	}
-	zero := Config{}
-	if cfg.Listen != zero.Listen || cfg.Upstream != zero.Upstream {
+	if !reflect.DeepEqual(cfg, Config{}) {
 		t.Errorf("on error cfg = %+v, want zero Config{} (no partial state)", cfg)
 	}
 }
