@@ -94,6 +94,10 @@ pow:
   access_ttl: "1h"
   secret: ""                     # optional; random per start if empty
 
+bomb:
+  trigger: off                   # off | confirmed | blocked (serve a gzip bomb)
+  decompressed_cap_mb: 64        # inflated-size cap; clamped [1, 1024]
+
 sinks:
   fail2ban:
     enabled: true
@@ -108,6 +112,12 @@ The maze's pages are filled by a pluggable `Poisoner`, selected by config:
 - **`article`**: a context-free grammar producing fluent, Wikipedia-register prose about fictional entities with plausible-but-false facts, coherent and lexically distinct per page.
 - **`canary`**: `article` plus unique, trackable fabricated facts derived deterministically from your `salt`, so you can later search for them in public AI tools.
 - **`none`**: links-only maze, no body text.
+
+### Decompression bomb (optional, aggressive)
+
+With `bomb.trigger: confirmed` (or `blocked`), a confirmed-hostile client that advertises `Accept-Encoding: gzip` is served a **gzip decompression bomb** instead of the maze: a tiny response that inflates — up to `decompressed_cap_mb` — into megabytes of compressible filler studded with poison. Cheap for you to send, expensive for a naive scraper to decompress and parse.
+
+**It is off by default and deliberately narrow.** It fires only on a confirmed-hostile tier, only for a client that advertised gzip, and is size-capped and streamed. The collateral risk is real: a CDN, a cache, an accessibility tool, or a **misidentified real browser** that sent `Accept-Encoding: gzip` would also receive it. Enable it only when you accept that trade-off.
 
 ## Does this actually work?
 
