@@ -50,3 +50,6 @@ cap), keyed on the resolved client IP.
   `Sec-Fetch-Site: cross-site`, which covers modern browsers. Keep `flag_ttl`
   modest, and if you sit behind a shared-IP CDN set `trusted_proxies` so clients
   resolve to their own IPs (otherwise one trap hit can flag everyone behind it).
+  Note the guard relies on the client's `Sec-Fetch-Site` header reaching Henbane —
+  if a fronting proxy/CDN strips `Sec-Fetch-*` headers, the guard is defeated, so
+  configure your edge to forward them.

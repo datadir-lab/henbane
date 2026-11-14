@@ -92,7 +92,6 @@ structurally (no import cycle):
   cross-site subresources). Residual risks the operator owns: a shared-IP CDN front (one hit
   flags everyone behind it — configure `trusted_proxies` correctly) and a modest `flag_ttl`.
 - Interface boundary so a shared *Poison Garden* feed can later implement the same `Store`.
-- Interface boundary so a shared *Poison Garden* feed can later implement the same `Store`.
 
 ## Configuration
 
