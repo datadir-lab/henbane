@@ -64,12 +64,33 @@ func (r *Resolver) isTrusted(addr netip.Addr) bool {
 	return false
 }
 
+// maxXFFEntries bounds how many X-Forwarded-For hops we parse, so a hostile
+// multi-megabyte header cannot drive unbounded CPU/allocation. The rightmost
+// entries (appended by trusted proxies) are the security-relevant ones, so the
+// sliding window keeps those.
+const maxXFFEntries = 50
+
 func splitXFF(values []string) []string {
-	var out []string
+	out := make([]string, 0, maxXFFEntries)
+	push := func(part string) {
+		if part = strings.TrimSpace(part); part == "" {
+			return
+		}
+		if len(out) == maxXFFEntries {
+			copy(out, out[1:]) // drop the leftmost, keep the rightmost window
+			out[len(out)-1] = part
+		} else {
+			out = append(out, part)
+		}
+	}
 	for _, v := range values {
-		for _, part := range strings.Split(v, ",") {
-			if part = strings.TrimSpace(part); part != "" {
-				out = append(out, part)
+		for len(v) > 0 {
+			if i := strings.IndexByte(v, ','); i >= 0 {
+				push(v[:i])
+				v = v[i+1:]
+			} else {
+				push(v)
+				break
 			}
 		}
 	}
