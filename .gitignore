@@ -15,3 +15,5 @@ assets/logo/shot-*.png
 # research study (regenerable)
 research/.venv/
 research/data/samples.jsonl
+research/__pycache__/
+__pycache__/
