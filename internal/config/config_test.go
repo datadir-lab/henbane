@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestParseFlagsOverrideFile(t *testing.T) {
@@ -102,5 +103,54 @@ func TestParseRejectsBroadTrustedProxy(t *testing.T) {
 		if _, err := Parse([]string{"-config", path}); err == nil {
 			t.Errorf("trusted_proxies %q: expected rejection (trusting all re-enables spoofing)", cidr)
 		}
+	}
+}
+
+func TestParseHoneypot(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "henbane.yaml")
+	body := "upstream: \"http://a:1\"\nhoneypot:\n  enabled: true\n  path: \"/.well-known/hb-trap\"\n  flag_ttl: \"30m\"\n  max_flagged: 5\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Parse([]string{"-config", path})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !cfg.Honeypot.Enabled || cfg.Honeypot.Path != "/.well-known/hb-trap" || cfg.Honeypot.MaxFlagged != 5 {
+		t.Errorf("honeypot = %+v", cfg.Honeypot)
+	}
+	ttl, err := cfg.HoneypotTTL()
+	if err != nil || ttl != 30*time.Minute {
+		t.Errorf("ttl = %v, %v", ttl, err)
+	}
+}
+
+func TestHoneypotTTLDefault(t *testing.T) {
+	ttl, err := Config{}.HoneypotTTL()
+	if err != nil || ttl != time.Hour {
+		t.Errorf("default ttl = %v, %v", ttl, err)
+	}
+}
+
+func TestParseRejectsEnabledHoneypotWithoutPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "henbane.yaml")
+	if err := os.WriteFile(path, []byte("upstream: \"http://a:1\"\nhoneypot:\n  enabled: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse([]string{"-config", path}); err == nil {
+		t.Fatal("expected error: enabled honeypot needs an absolute path")
+	}
+}
+
+func TestParseRejectsBadFlagTTL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "henbane.yaml")
+	if err := os.WriteFile(path, []byte("upstream: \"http://a:1\"\nhoneypot:\n  enabled: true\n  path: \"/t\"\n  flag_ttl: \"nope\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse([]string{"-config", path}); err == nil {
+		t.Fatal("expected error for invalid flag_ttl")
 	}
 }
