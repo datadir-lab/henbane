@@ -5,15 +5,55 @@ package config
 import (
 	"flag"
 	"fmt"
+	"net/netip"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Config is the Henbane configuration.
 type Config struct {
-	Listen   string `yaml:"listen"`
-	Upstream string `yaml:"upstream"`
+	Listen         string   `yaml:"listen"`
+	Upstream       string   `yaml:"upstream"`
+	TrustedProxies []string `yaml:"trusted_proxies"`
+	Deny           Deny     `yaml:"deny"`
+	Sinks          Sinks    `yaml:"sinks"`
+}
+
+// Deny is the operator denylist.
+type Deny struct {
+	CIDRs      []string `yaml:"cidrs"`
+	UserAgents []string `yaml:"user_agents"` // case-insensitive substrings
+}
+
+// Sinks configures optional output sinks.
+type Sinks struct {
+	Fail2ban Fail2ban `yaml:"fail2ban"`
+}
+
+// Fail2ban configures the fail2ban ban-line sink.
+type Fail2ban struct {
+	Enabled bool   `yaml:"enabled"`
+	Path    string `yaml:"path"`
+}
+
+// TrustedPrefixes parses TrustedProxies into CIDRs.
+func (c Config) TrustedPrefixes() ([]netip.Prefix, error) { return parsePrefixes(c.TrustedProxies) }
+
+// DenyPrefixes parses Deny.CIDRs into CIDRs.
+func (c Config) DenyPrefixes() ([]netip.Prefix, error) { return parsePrefixes(c.Deny.CIDRs) }
+
+func parsePrefixes(cidrs []string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, s := range cidrs {
+		p, err := netip.ParsePrefix(strings.TrimSpace(s))
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR %q: %w", s, err)
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 // Default returns the zero-config defaults.
@@ -61,6 +101,12 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.Upstream == "" {
 		return Config{}, fmt.Errorf("upstream is required (set --upstream or upstream: in config)")
+	}
+	if _, err := cfg.TrustedPrefixes(); err != nil {
+		return Config{}, err
+	}
+	if _, err := cfg.DenyPrefixes(); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }
