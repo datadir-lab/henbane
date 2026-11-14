@@ -1,3 +1,7 @@
+# Actions use readable version tags; .github/workflows/actions.lock pins each
+# action (and its transitive deps) to an immutable commit SHA, which the GitHub
+# Actions runtime enforces at dispatch. The "actions-lock" job fails on lockfile
+# drift. Regenerate the lockfile with: gh actions-lock
 name: ci
 on:
   push:
@@ -84,3 +88,15 @@ jobs:
         if: always()
         with:
           sarif_file: trivy.sarif
+
+  actions-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: verify actions lockfile is current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh extension install github/gh-actions-lock
+          gh actions-lock --no-fix
