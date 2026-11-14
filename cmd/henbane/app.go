@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 
 	"github.com/henbane-sh/henbane/internal/adapters/proxy"
 	"github.com/henbane-sh/henbane/internal/adapters/sink"
@@ -16,7 +16,9 @@ import (
 )
 
 // newHandler wires config into the resolver, engine, sinks, and proxy adapter.
-func newHandler(cfg config.Config, logger *slog.Logger) (http.Handler, error) {
+// If fail2banW is non-nil a fail2ban sink writing to it is added; the caller
+// owns that writer's lifecycle (opening and closing it).
+func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (http.Handler, error) {
 	upstream, err := url.Parse(cfg.Upstream)
 	if err != nil {
 		return nil, fmt.Errorf("invalid upstream %q: %w", cfg.Upstream, err)
@@ -41,12 +43,8 @@ func newHandler(cfg config.Config, logger *slog.Logger) (http.Handler, error) {
 	resolver := clientip.NewResolver(trusted)
 
 	sinks := []ports.Sink{sink.NewSlogSink(logger)}
-	if cfg.Sinks.Fail2ban.Enabled {
-		f, err := os.OpenFile(cfg.Sinks.Fail2ban.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			return nil, fmt.Errorf("open fail2ban log %q: %w", cfg.Sinks.Fail2ban.Path, err)
-		}
-		sinks = append(sinks, sink.NewFail2banSink(f))
+	if fail2banW != nil {
+		sinks = append(sinks, sink.NewFail2banSink(fail2banW))
 	}
 
 	return proxy.New(upstream, engine, sinks, logger, resolver), nil

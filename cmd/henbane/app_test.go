@@ -17,7 +17,7 @@ func TestNewHandlerProxiesUpstream(t *testing.T) {
 	defer upstream.Close()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	h, err := newHandler(config.Config{Listen: ":0", Upstream: upstream.URL}, logger)
+	h, err := newHandler(config.Config{Listen: ":0", Upstream: upstream.URL}, logger, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestNewHandlerProxiesUpstream(t *testing.T) {
 
 func TestNewHandlerRejectsBadUpstream(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	if _, err := newHandler(config.Config{Upstream: "://bad"}, logger); err == nil {
+	if _, err := newHandler(config.Config{Upstream: "://bad"}, logger, nil); err == nil {
 		t.Fatal("expected error for invalid upstream URL")
 	}
 }
@@ -51,7 +51,7 @@ func TestNewHandlerBlocksDenylistedUA(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{Upstream: upstream.URL, Deny: config.Deny{UserAgents: []string{"badbot"}}}
-	h, err := newHandler(cfg, logger)
+	h, err := newHandler(cfg, logger, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
