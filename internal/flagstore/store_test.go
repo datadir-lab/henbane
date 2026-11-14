@@ -2,6 +2,7 @@ package flagstore
 
 import (
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 )
@@ -49,4 +50,31 @@ func TestMaxBound(t *testing.T) {
 	if n := s.len(); n > 3 {
 		t.Fatalf("store grew to %d, want <= 3 (hard bound)", n)
 	}
+}
+
+func TestMaxClampedToOne(t *testing.T) {
+	s := New(0, time.Hour)
+	for i := 0; i < 10; i++ {
+		s.Flag(netip.AddrFrom4([4]byte{10, 0, 0, byte(i)}))
+	}
+	if n := s.len(); n > 1 {
+		t.Fatalf("store grew to %d with max<=0, want <= 1", n)
+	}
+}
+
+func TestConcurrentAccess(t *testing.T) {
+	s := New(1000, time.Hour)
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			ip := netip.AddrFrom4([4]byte{10, 0, byte(n), 1})
+			for j := 0; j < 100; j++ {
+				s.Flag(ip)
+				_ = s.Flagged(ip)
+			}
+		}(i)
+	}
+	wg.Wait()
 }

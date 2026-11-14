@@ -19,6 +19,9 @@ type Store struct {
 
 // New returns a Store holding at most max entries, each expiring after ttl.
 func New(max int, ttl time.Duration) *Store {
+	if max < 1 {
+		max = 1 // a store must hold at least one entry to be useful; never unbounded
+	}
 	return &Store{
 		entries: make(map[netip.Addr]time.Time),
 		max:     max,
