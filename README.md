@@ -238,10 +238,10 @@ The full design, including the ports-and-adapters layout, the decision contract,
 
 ## License
 
-Henbane is free software under the **GNU AGPL-3.0** — see [LICENSE](LICENSE).
+Henbane is free software under the **GNU AGPL-3.0**. See [LICENSE](LICENSE).
 Copyright © 2026 datadir s. r. o.
 
 The AGPL is deliberate: run a modified Henbane as a network service and you must
 share your changes. The open gateway stays a commons; a commercial control plane
-(dashboard, analytics, federation) is offered separately — see
+(dashboard, analytics, federation) is offered separately. See
 [`docs/STRATEGY.md`](docs/STRATEGY.md).
