@@ -34,6 +34,15 @@ type Poison struct {
 	Salt              string `yaml:"salt"`                // per-deployment; required for canary
 }
 
+// PoW configures the proof-of-work challenge gate.
+type PoW struct {
+	Mode           string `yaml:"mode"`            // off|suspect|all; "" => off
+	DifficultyBits int    `yaml:"difficulty_bits"` // 0 => default 20; clamped [8,32] downstream
+	ChallengeTTL   string `yaml:"challenge_ttl"`   // e.g. "5m"; default 5m
+	AccessTTL      string `yaml:"access_ttl"`      // e.g. "1h"; default 1h
+	Secret         string `yaml:"secret"`          // optional; random per start if empty
+}
+
 // Config is the Henbane configuration.
 type Config struct {
 	Listen         string    `yaml:"listen"`
@@ -44,6 +53,31 @@ type Config struct {
 	Honeypot       Honeypot  `yaml:"honeypot"`
 	Labyrinth      Labyrinth `yaml:"labyrinth"`
 	Poison         Poison    `yaml:"poison"`
+	PoW            PoW       `yaml:"pow"`
+}
+
+// PoWChallengeTTL parses PoW.ChallengeTTL, defaulting to 5m; must be positive.
+func (c Config) PoWChallengeTTL() (time.Duration, error) {
+	return parseTTL(c.PoW.ChallengeTTL, 5*time.Minute, "pow.challenge_ttl")
+}
+
+// PoWAccessTTL parses PoW.AccessTTL, defaulting to 1h; must be positive.
+func (c Config) PoWAccessTTL() (time.Duration, error) {
+	return parseTTL(c.PoW.AccessTTL, time.Hour, "pow.access_ttl")
+}
+
+func parseTTL(s string, def time.Duration, name string) (time.Duration, error) {
+	if s == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %q: %w", name, s, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("%s must be positive, got %q", name, s)
+	}
+	return d, nil
 }
 
 // Deny is the operator denylist.
@@ -181,6 +215,20 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.Poison.Strategy == "canary" && cfg.Poison.Salt == "" {
 		return Config{}, fmt.Errorf("poison.salt is required when poison.strategy is canary")
+	}
+	switch cfg.PoW.Mode {
+	case "", "off", "suspect", "all":
+	default:
+		return Config{}, fmt.Errorf("pow.mode %q is not one of off|suspect|all", cfg.PoW.Mode)
+	}
+	if cfg.PoW.DifficultyBits < 0 {
+		return Config{}, fmt.Errorf("pow.difficulty_bits must be >= 0")
+	}
+	if _, err := cfg.PoWChallengeTTL(); err != nil {
+		return Config{}, err
+	}
+	if _, err := cfg.PoWAccessTTL(); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }

@@ -237,3 +237,47 @@ func TestParsePoisonRoundTrip(t *testing.T) {
 		t.Errorf("poison = %+v", cfg.Poison)
 	}
 }
+
+func TestParsePoWValidModes(t *testing.T) {
+	for _, m := range []string{"off", "suspect", "all"} {
+		if _, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  mode: \""+m+"\"\n"); err != nil {
+			t.Errorf("pow.mode %q rejected: %v", m, err)
+		}
+	}
+}
+
+func TestParsePoWUnknownMode(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  mode: \"bogus\"\n"); err == nil {
+		t.Error("expected error for unknown pow.mode")
+	}
+}
+
+func TestParsePoWNegativeDifficulty(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  difficulty_bits: -1\n"); err == nil {
+		t.Error("negative pow.difficulty_bits must be rejected")
+	}
+}
+
+func TestParsePoWBadTTL(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  challenge_ttl: \"nope\"\n"); err == nil {
+		t.Error("invalid pow.challenge_ttl must be rejected")
+	}
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  access_ttl: \"-5m\"\n"); err == nil {
+		t.Error("negative pow.access_ttl must be rejected")
+	}
+}
+
+func TestParsePoWRoundTripAndTTLDefaults(t *testing.T) {
+	cfg, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  mode: \"all\"\n  difficulty_bits: 18\n  secret: \"s3cr3t\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PoW.Mode != "all" || cfg.PoW.DifficultyBits != 18 || cfg.PoW.Secret != "s3cr3t" {
+		t.Errorf("pow = %+v", cfg.PoW)
+	}
+	ch, _ := cfg.PoWChallengeTTL()
+	ac, _ := cfg.PoWAccessTTL()
+	if ch != 5*time.Minute || ac != time.Hour {
+		t.Errorf("default TTLs = %v / %v, want 5m / 1h", ch, ac)
+	}
+}
