@@ -34,6 +34,14 @@ type Poison struct {
 	Salt              string `yaml:"salt"`                // per-deployment; required for canary
 }
 
+// Robots configures the robots.txt Henbane serves. When enabled it Disallows the
+// honeypot trap (so well-behaved crawlers avoid it, and any client that fetches it
+// is provably ignoring robots.txt → caught by the honeypot).
+type Robots struct {
+	Serve    bool     `yaml:"serve"`    // if true, Henbane serves /robots.txt
+	Disallow []string `yaml:"disallow"` // extra paths to Disallow (operator's own)
+}
+
 // Bomb configures the decompression-bomb poison response. Off by default; only
 // ever fires on a confirmed-hostile tier for a gzip-capable client.
 type Bomb struct {
@@ -62,6 +70,7 @@ type Config struct {
 	Poison         Poison    `yaml:"poison"`
 	PoW            PoW       `yaml:"pow"`
 	Bomb           Bomb      `yaml:"bomb"`
+	Robots         Robots    `yaml:"robots"`
 }
 
 // PoWChallengeTTL parses PoW.ChallengeTTL, defaulting to 5m; must be positive.
@@ -245,6 +254,13 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.Bomb.DecompressedCapMB < 0 {
 		return Config{}, fmt.Errorf("bomb.decompressed_cap_mb must be >= 0")
+	}
+	if cfg.Robots.Serve {
+		for _, p := range cfg.Robots.Disallow {
+			if !strings.HasPrefix(p, "/") {
+				return Config{}, fmt.Errorf("robots.disallow entry %q must be an absolute path", p)
+			}
+		}
 	}
 	return cfg, nil
 }

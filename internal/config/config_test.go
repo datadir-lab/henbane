@@ -311,3 +311,19 @@ func TestParseBombRoundTrip(t *testing.T) {
 		t.Errorf("bomb = %+v", cfg.Bomb)
 	}
 }
+
+func TestParseRobotsDisallowMustBeAbsolute(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nrobots:\n  serve: true\n  disallow: [\"relative\"]\n"); err == nil {
+		t.Error("non-absolute robots.disallow entry must be rejected")
+	}
+}
+
+func TestParseRobotsRoundTrip(t *testing.T) {
+	cfg, err := parsePoison(t, "upstream: \"http://a:1\"\nrobots:\n  serve: true\n  disallow: [\"/private\", \"/admin\"]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Robots.Serve || len(cfg.Robots.Disallow) != 2 || cfg.Robots.Disallow[0] != "/private" {
+		t.Errorf("robots = %+v", cfg.Robots)
+	}
+}
