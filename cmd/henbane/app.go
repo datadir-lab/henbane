@@ -12,6 +12,7 @@ import (
 	"github.com/henbane-sh/henbane/internal/clientip"
 	"github.com/henbane-sh/henbane/internal/config"
 	"github.com/henbane-sh/henbane/internal/core"
+	"github.com/henbane-sh/henbane/internal/detect/denylist"
 	"github.com/henbane-sh/henbane/internal/ports"
 )
 
@@ -36,10 +37,15 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 		return nil, err
 	}
 
-	engine := core.NewEngine(core.Policy{
-		DenyCIDRs:      denyCIDRs,
-		DenyUserAgents: cfg.Deny.UserAgents,
-	})
+	var detectors []ports.Detector
+	if len(denyCIDRs) > 0 {
+		detectors = append(detectors, denylist.NewIP(denyCIDRs))
+	}
+	if len(cfg.Deny.UserAgents) > 0 {
+		detectors = append(detectors, denylist.NewUA(cfg.Deny.UserAgents))
+	}
+
+	engine := core.NewEngine(detectors...)
 	resolver := clientip.NewResolver(trusted)
 
 	sinks := []ports.Sink{sink.NewSlogSink(logger)}

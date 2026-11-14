@@ -42,7 +42,7 @@ func TestProxyForwardsAndEmits(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := &recordingSink{}
-	h := New(u, core.NewEngine(core.Policy{}), []ports.Sink{rs}, discardLogger(), clientip.NewResolver(nil))
+	h := New(u, core.NewEngine(), []ports.Sink{rs}, discardLogger(), clientip.NewResolver(nil))
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/page", nil)
 	req.Header.Set("User-Agent", "curl/8")
