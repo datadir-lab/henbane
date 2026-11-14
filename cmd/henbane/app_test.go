@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"io"
 	"log/slog"
 	"net/http"
@@ -272,6 +273,54 @@ func TestPoWSuspectModeChallengesSpoofedBrowser(t *testing.T) {
 	// Plain non-browser client (curl) → not flagged, passes through.
 	if _, body := get("curl/8", ""); body != "upstream body" {
 		t.Errorf("curl: body=%q, want upstream body (non-browser must not be challenged)", body)
+	}
+}
+
+func TestBombServedToConfirmedCrawlerWithGzip(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "upstream body")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{
+		Upstream: upstream.URL,
+		Honeypot: config.Honeypot{Enabled: true, Path: "/trap", MaxFlagged: 100},
+		Poison:   config.Poison{Strategy: "babble"},
+		Bomb:     config.Bomb{Trigger: "confirmed", DecompressedCapMB: 1},
+	}
+	h, err := newHandler(cfg, logger, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	do := func(path string) *http.Response {
+		req, _ := http.NewRequest(http.MethodGet, front.URL+path, nil)
+		req.Header.Set("Accept-Encoding", "gzip") // set manually so Go does not auto-decompress
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	if r := do("/trap/x"); r != nil { // trip the honeypot
+		r.Body.Close()
+	}
+
+	resp := do("/page") // flagged client → gzip bomb instead of the maze
+	defer resp.Body.Close()
+	if resp.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("Content-Encoding = %q, want gzip (bomb)", resp.Header.Get("Content-Encoding"))
+	}
+	gz, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		t.Fatalf("gzip reader: %v", err)
+	}
+	decompressed, _ := io.ReadAll(gz)
+	if len(decompressed) < 512<<10 {
+		t.Errorf("decompressed bomb = %d bytes, want a large payload (cap 1 MiB)", len(decompressed))
 	}
 }
 

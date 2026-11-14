@@ -19,6 +19,7 @@ import (
 	"github.com/datadir-lab/henbane/internal/detect/denylist"
 	"github.com/datadir-lab/henbane/internal/detect/honeypot"
 	"github.com/datadir-lab/henbane/internal/flagstore"
+	"github.com/datadir-lab/henbane/internal/generate/bomb"
 	"github.com/datadir-lab/henbane/internal/generate/labyrinth"
 	"github.com/datadir-lab/henbane/internal/generate/poison"
 	"github.com/datadir-lab/henbane/internal/generate/poison/article"
@@ -93,7 +94,21 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 	if err != nil {
 		return nil, err
 	}
-	return proxy.New(upstream, engine, sinks, logger, resolver, maze, pw, proxy.Bomb{}), nil
+	return proxy.New(upstream, engine, sinks, logger, resolver, maze, pw, buildBomb(cfg, poisoner)), nil
+}
+
+// buildBomb constructs the decompression-bomb response from config, reusing the
+// configured poisoner for the bomb's payload. Trigger off/"" disables it.
+func buildBomb(cfg config.Config, poisoner ports.Poisoner) proxy.Bomb {
+	if cfg.Bomb.Trigger == "" || cfg.Bomb.Trigger == "off" {
+		return proxy.Bomb{}
+	}
+	capBytes := int64(cfg.Bomb.DecompressedCapMB) << 20
+	return proxy.Bomb{
+		Writer:      bomb.New(poisoner, capBytes),
+		OnConfirmed: cfg.Bomb.Trigger == "confirmed",
+		OnBlocked:   cfg.Bomb.Trigger == "blocked",
+	}
 }
 
 // buildPoW constructs the proof-of-work gate from config. Mode off/"" disables it.
