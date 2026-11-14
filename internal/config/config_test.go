@@ -37,3 +37,18 @@ func TestDefault(t *testing.T) {
 		t.Errorf("default listen = %q, want :8080", Default().Listen)
 	}
 }
+
+func TestLoadFileMalformedYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(path, []byte("upstream: [oops"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFile(path)
+	if err == nil {
+		t.Fatal("expected error for malformed YAML")
+	}
+	if cfg != (Config{}) {
+		t.Errorf("on error cfg = %+v, want zero Config{} (no partial state)", cfg)
+	}
+}

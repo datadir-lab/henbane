@@ -29,12 +29,13 @@ func LoadFile(path string) (Config, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return cfg, fmt.Errorf("read config: %w", err)
+		return Config{}, fmt.Errorf("read config: %w", err)
 	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("parse config: %w", err)
+	loaded := Default()
+	if err := yaml.Unmarshal(data, &loaded); err != nil {
+		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
-	return cfg, nil
+	return loaded, nil
 }
 
 // Parse builds a Config from command-line args. Non-empty flags override the
