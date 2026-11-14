@@ -32,6 +32,7 @@ func TestCorePurity(t *testing.T) {
 		mainModule + "/internal/flagstore",
 		mainModule + "/internal/detect/denylist",
 		mainModule + "/internal/detect/honeypot",
+		mainModule + "/internal/generate/labyrinth",
 	}
 
 	for _, target := range targets {
