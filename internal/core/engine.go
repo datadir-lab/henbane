@@ -22,20 +22,28 @@ type clock func() time.Time
 
 // Engine is the decision engine.
 type Engine struct {
-	policy Policy
-	now    clock
+	denyCIDRs   []netip.Prefix
+	denyUALower []string // lowercased, non-empty deny user-agents (precomputed)
+	now         clock
 }
 
 // NewEngine builds an Engine applying policy. A zero Policy allows all traffic.
+// Deny user-agents are lowercased once here rather than per request.
 func NewEngine(policy Policy) *Engine {
-	return &Engine{policy: policy, now: time.Now}
+	lower := make([]string, 0, len(policy.DenyUserAgents))
+	for _, ua := range policy.DenyUserAgents {
+		if ua != "" {
+			lower = append(lower, strings.ToLower(ua))
+		}
+	}
+	return &Engine{denyCIDRs: policy.DenyCIDRs, denyUALower: lower, now: time.Now}
 }
 
 // Decide blocks denylisted clients (by IP/CIDR, then user-agent) and otherwise
 // allows the request.
 func (e *Engine) Decide(ctx context.Context, r ports.RequestView) (ports.Verdict, []ports.Event) {
 	if ip := r.IP().Unmap(); ip.IsValid() {
-		for _, p := range e.policy.DenyCIDRs {
+		for _, p := range e.denyCIDRs {
 			if p.Contains(ip) {
 				return e.emit(r, ports.ActionBlock, ports.TierBlocked, []ports.Signal{"denylist_ip"})
 			}
@@ -43,8 +51,8 @@ func (e *Engine) Decide(ctx context.Context, r ports.RequestView) (ports.Verdict
 	}
 	if ua := r.UserAgent(); ua != "" {
 		lower := strings.ToLower(ua)
-		for _, deny := range e.policy.DenyUserAgents {
-			if deny != "" && strings.Contains(lower, strings.ToLower(deny)) {
+		for _, deny := range e.denyUALower {
+			if strings.Contains(lower, deny) {
 				return e.emit(r, ports.ActionBlock, ports.TierBlocked, []ports.Signal{"denylist_ua"})
 			}
 		}
