@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"testing"
@@ -51,7 +52,7 @@ func TestProxyForwardsAndEmits(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := &recordingSink{}
-	h := New(u, core.NewEngine(), []ports.Sink{rs}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{})
+	h := New(u, core.NewEngine(), []ports.Sink{rs}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{})
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/page", nil)
 	req.Header.Set("User-Agent", "curl/8")
@@ -81,7 +82,7 @@ func TestProxyFailsClosedOnNonAllow(t *testing.T) {
 	// ActionChallenge has no explicit case yet (added in a later slice); it
 	// must fall through to the fail-closed default, not pass traffic through.
 	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionChallenge, Tier: ports.TierSuspect}}
-	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{})
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/x", nil))
@@ -104,7 +105,7 @@ func TestProxyFansOutEveryEventToEverySink(t *testing.T) {
 		events:  []ports.Event{{Path: "/a"}, {Path: "/b"}},
 	}
 	s1, s2 := &recordingSink{}, &recordingSink{}
-	h := New(u, eng, []ports.Sink{s1, s2}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{})
+	h := New(u, eng, []ports.Sink{s1, s2}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{})
 
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.com/", nil))
 
@@ -120,7 +121,7 @@ func TestProxyBlocksReturns403(t *testing.T) {
 	u, _ := url.Parse(upstream.URL)
 
 	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionBlock, Tier: ports.TierBlocked}}
-	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{})
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/x", nil))
@@ -141,7 +142,7 @@ func TestProxyTarpitServesMaze(t *testing.T) {
 
 	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionTarpit, Tier: ports.TierConfirmed}}
 	maze := &fakeMaze{}
-	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), maze)
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), maze, PoW{})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/trap/x", nil))
@@ -171,5 +172,81 @@ func TestRequestViewUsesResolver(t *testing.T) {
 	}
 	if got := v.IP().String(); got != "203.0.113.7" {
 		t.Errorf("IP() = %s, want 203.0.113.7", got)
+	}
+}
+
+type fakeChallenger struct {
+	valid      bool
+	challenged int
+	verified   int
+}
+
+func (f *fakeChallenger) HasValidToken(*http.Request, netip.Addr) bool { return f.valid }
+func (f *fakeChallenger) ServeChallenge(w http.ResponseWriter, _ *http.Request, _ netip.Addr) {
+	f.challenged++
+	_, _ = io.WriteString(w, "CHALLENGE-PAGE")
+}
+func (f *fakeChallenger) Verify(w http.ResponseWriter, _ *http.Request, _ netip.Addr) {
+	f.verified++
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func newPoWHandler(t *testing.T, eng ports.Engine, fc *fakeChallenger, all bool) *Handler {
+	t.Helper()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "UPSTREAM")
+	}))
+	t.Cleanup(upstream.Close)
+	u, _ := url.Parse(upstream.URL)
+	return New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{},
+		PoW{Challenger: fc, VerifyPath: "/.well-known/henbane/verify", ChallengeAll: all})
+}
+
+func TestProxyChallengeAllChallengesUnauthed(t *testing.T) {
+	fc := &fakeChallenger{valid: false}
+	h := newPoWHandler(t, fakeEngine{verdict: ports.Verdict{Action: ports.ActionAllow}}, fc, true)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/page", nil))
+	if fc.challenged != 1 {
+		t.Errorf("challenged = %d, want 1", fc.challenged)
+	}
+	if strings.Contains(rec.Body.String(), "UPSTREAM") {
+		t.Error("un-authed request reached upstream under challenge-all")
+	}
+}
+
+func TestProxyValidTokenBypassesChallenge(t *testing.T) {
+	fc := &fakeChallenger{valid: true}
+	h := newPoWHandler(t, fakeEngine{verdict: ports.Verdict{Action: ports.ActionAllow}}, fc, true)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/page", nil))
+	if fc.challenged != 0 {
+		t.Errorf("challenged = %d, want 0 (valid token bypasses)", fc.challenged)
+	}
+	if rec.Body.String() != "UPSTREAM" {
+		t.Errorf("body = %q, want UPSTREAM", rec.Body.String())
+	}
+}
+
+func TestProxyVerifyPathRouted(t *testing.T) {
+	fc := &fakeChallenger{}
+	h := newPoWHandler(t, fakeEngine{verdict: ports.Verdict{Action: ports.ActionAllow}}, fc, true)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://example.com/.well-known/henbane/verify", nil))
+	if fc.verified != 1 {
+		t.Errorf("verified = %d, want 1 (verify path must route to the gate)", fc.verified)
+	}
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", rec.Code)
+	}
+}
+
+func TestProxyChallengeDoesNotOverrideBlock(t *testing.T) {
+	fc := &fakeChallenger{valid: false}
+	h := newPoWHandler(t, fakeEngine{verdict: ports.Verdict{Action: ports.ActionBlock, Tier: ports.TierBlocked}}, fc, true)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/x", nil))
+	if rec.Code != http.StatusForbidden || fc.challenged != 0 {
+		t.Errorf("blocked under challenge-all: status=%d challenged=%d, want 403/0", rec.Code, fc.challenged)
 	}
 }
