@@ -22,7 +22,7 @@ Scrapers that train AI models now hit small sites thousands of times an hour. Th
 
 The design point is restraint. Tools that make every visitor solve a proof-of-work puzzle also punish people on no-JS browsers, screen readers, and old devices. Henbane acts only on traffic that proves itself hostile, so a real reader passes through without noticing it is there.
 
-> **Status: early, under active development.** Built and tested today: the reverse proxy, IP and User-Agent denylists, a honeypot trap detector, the labyrinth maze, and three poison generators. Proof-of-work challenges, Prometheus metrics, and the middleware and Caddy form factors are planned, not yet built. Zero third-party runtime dependencies (standard library only, plus `gopkg.in/yaml.v3` for config). Not production ready.
+> **Status: early, under active development.** Built and tested today: the reverse proxy, IP and User-Agent denylists, a honeypot trap detector, the labyrinth maze, three poison generators, and a proof-of-work challenge gate. Prometheus metrics and the middleware and Caddy form factors are planned, not yet built. Zero third-party runtime dependencies (standard library only, plus `gopkg.in/yaml.v3` for config). Not production ready.
 
 ## How it works
 
@@ -31,10 +31,11 @@ Every request is classified into a tier, and the tier picks an action.
 | Tier | Trigger | Action | Response |
 |---|---|---|---|
 | `Pass` | normal traffic | Allow | proxied to your upstream |
+| `Suspect` | heuristic signal, or `pow.mode: all` | **Challenge** | a proof-of-work interstitial, then passed through |
 | `Confirmed` | tripped a honeypot trap | **Tarpit** | `200`, a labyrinth maze page with poison text, no ban |
 | `Blocked` | on a denylist (IP or UA) | **Block** | `403`, plus a fail2ban ban line if configured |
 
-The split is deliberate. A denylisted actor is banished (403 and fail2ban). A honeypot-confirmed crawler is detained instead: the aim is to keep it crawling the maze and spending its own budget, so banning it would be counterproductive. A proof-of-work tier for merely-suspicious clients is designed and on the roadmap.
+The split is deliberate. A denylisted actor is banished (403 and fail2ban). A honeypot-confirmed crawler is detained instead: the aim is to keep it crawling the maze and spending its own budget, so banning it would be counterproductive. A proof-of-work tier challenges suspicious clients — or everyone, with `pow.mode: all`. The browser solves a small puzzle once, is remembered by an anonymous session cookie, and passes through; a crawler reading a million pages pays it a million times. It is off by default.
 
 ## Quick start
 
@@ -85,6 +86,13 @@ poison:
   paragraphs_per_page: 3         # clamped to [0, 20]
   corpus_path: ""                # optional BYO corpus for babble
   salt: ""                       # per-deployment; required for canary
+
+pow:
+  mode: off                      # off | suspect | all (challenge everyone)
+  difficulty_bits: 20            # leading zero bits; clamped [8, 32]
+  challenge_ttl: "5m"
+  access_ttl: "1h"
+  secret: ""                     # optional; random per start if empty
 
 sinks:
   fail2ban:
@@ -142,7 +150,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Honeypot tripwire that marks a client Confirmed
 - [x] Labyrinth: an endless tree of generated links that wastes crawl budget
 - [x] Poison: babble, article, and canary generators fill the maze
-- [ ] Proof-of-work challenge: themeable page, WASM solver, signed session token, no-JS fallback
+- [x] Proof-of-work challenge gate: JS solver, HMAC session token, themeable page (WASM solver + no-JS fallback still to come)
 - [ ] Bundled AI-crawler IP ranges, plus a verified-good-bot check
 - [ ] Rate-based suspicion
 - [ ] Prometheus `/metrics` sink
