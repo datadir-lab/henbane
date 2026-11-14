@@ -8,6 +8,7 @@ import (
 	"net/http/httputil"
 	"net/netip"
 	"net/url"
+	"strings"
 
 	"github.com/datadir-lab/henbane/internal/clientip"
 	"github.com/datadir-lab/henbane/internal/ports"
@@ -30,6 +31,20 @@ type PoW struct {
 	Challenger   Challenger
 	VerifyPath   string
 	ChallengeAll bool // "challenge everyone": every un-authed request is challenged
+}
+
+// BombWriter streams a gzip decompression bomb for a request path.
+type BombWriter interface {
+	WriteGzip(w io.Writer, path string) error
+}
+
+// Bomb configures the decompression-bomb response. A nil Writer disables it. It
+// fires only for a client that advertised Accept-Encoding: gzip, and only on the
+// opted-in tier(s); otherwise the normal maze/403 is served.
+type Bomb struct {
+	Writer      BombWriter
+	OnConfirmed bool // replace the Tarpit maze with a bomb
+	OnBlocked   bool // replace the 403 with a bomb
 }
 
 // requestView adapts *http.Request to ports.RequestView, resolving the client
@@ -55,21 +70,22 @@ type Handler struct {
 	resolver *clientip.Resolver
 	maze     MazeWriter
 	pow      PoW
+	bomb     Bomb
 	rp       *httputil.ReverseProxy
 }
 
-// New builds a Handler proxying to upstream, consulting engine and fanning
-// events to sinks. resolver determines the client IP; logger must be non-nil.
-// maze serves the labyrinth page on a tarpit verdict; pow (if its Challenger is
-// non-nil) gates requests behind proof-of-work.
-func New(upstream *url.URL, engine ports.Engine, sinks []ports.Sink, logger *slog.Logger, resolver *clientip.Resolver, maze MazeWriter, pow PoW) *Handler {
+// New builds a Handler proxying to upstream, consulting engine and fanning events
+// to sinks. resolver determines the client IP; logger must be non-nil. maze serves
+// the labyrinth on a tarpit verdict; pow gates requests behind proof-of-work; bomb
+// (if its Writer is non-nil) replaces the opted-in tier's response with a gzip bomb.
+func New(upstream *url.URL, engine ports.Engine, sinks []ports.Sink, logger *slog.Logger, resolver *clientip.Resolver, maze MazeWriter, pow PoW, bomb Bomb) *Handler {
 	rp := httputil.NewSingleHostReverseProxy(upstream)
 	rp.ErrorLog = slog.NewLogLogger(logger.Handler(), slog.LevelError)
 	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		logger.Error("upstream proxy error", "err", err, "path", r.URL.Path)
 		w.WriteHeader(http.StatusBadGateway)
 	}
-	return &Handler{engine: engine, sinks: sinks, logger: logger, resolver: resolver, maze: maze, pow: pow, rp: rp}
+	return &Handler{engine: engine, sinks: sinks, logger: logger, resolver: resolver, maze: maze, pow: pow, bomb: bomb, rp: rp}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -112,8 +128,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.pow.Challenger.ServeChallenge(w, r, ip)
 	case ports.ActionBlock:
+		if h.serveBombIf(w, r, h.bomb.OnBlocked) {
+			return
+		}
 		http.Error(w, "forbidden", http.StatusForbidden)
 	case ports.ActionTarpit:
+		if h.serveBombIf(w, r, h.bomb.OnConfirmed) {
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := h.maze.WritePage(w, r.URL.Path); err != nil {
 			h.logger.Error("labyrinth write failed", "err", err, "path", r.URL.Path)
@@ -123,8 +145,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// failClosed refuses traffic for any action without a handler, rather than
-// passing it through to the upstream.
+// serveBombIf streams the decompression bomb when it is enabled, opted in for this
+// tier (triggered), and the client advertised gzip. It reports whether it handled
+// the response.
+func (h *Handler) serveBombIf(w http.ResponseWriter, r *http.Request, triggered bool) bool {
+	if h.bomb.Writer == nil || !triggered || !acceptsGzip(r) {
+		return false
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Encoding", "gzip")
+	if err := h.bomb.Writer.WriteGzip(w, r.URL.Path); err != nil {
+		h.logger.Error("bomb write failed", "err", err, "path", r.URL.Path)
+	}
+	return true
+}
+
+func acceptsGzip(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept-Encoding"), "gzip")
+}
+
+// failClosed refuses traffic for any action without a handler, rather than passing
+// it through to the upstream.
 func (h *Handler) failClosed(w http.ResponseWriter, r *http.Request, v ports.Verdict) {
 	h.logger.Error("unhandled verdict action; failing closed",
 		"action", v.Action.String(), "tier", v.Tier.String(), "path", r.URL.Path)

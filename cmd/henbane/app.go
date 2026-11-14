@@ -93,7 +93,7 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 	if err != nil {
 		return nil, err
 	}
-	return proxy.New(upstream, engine, sinks, logger, resolver, maze, pw), nil
+	return proxy.New(upstream, engine, sinks, logger, resolver, maze, pw, proxy.Bomb{}), nil
 }
 
 // buildPoW constructs the proof-of-work gate from config. Mode off/"" disables it.

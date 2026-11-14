@@ -52,7 +52,7 @@ func TestProxyForwardsAndEmits(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := &recordingSink{}
-	h := New(u, core.NewEngine(), []ports.Sink{rs}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{})
+	h := New(u, core.NewEngine(), []ports.Sink{rs}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{}, Bomb{})
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/page", nil)
 	req.Header.Set("User-Agent", "curl/8")
@@ -82,7 +82,7 @@ func TestProxyFailsClosedOnNonAllow(t *testing.T) {
 	// ActionChallenge has no explicit case yet (added in a later slice); it
 	// must fall through to the fail-closed default, not pass traffic through.
 	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionChallenge, Tier: ports.TierSuspect}}
-	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{})
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{}, Bomb{})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/x", nil))
@@ -105,7 +105,7 @@ func TestProxyFansOutEveryEventToEverySink(t *testing.T) {
 		events:  []ports.Event{{Path: "/a"}, {Path: "/b"}},
 	}
 	s1, s2 := &recordingSink{}, &recordingSink{}
-	h := New(u, eng, []ports.Sink{s1, s2}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{})
+	h := New(u, eng, []ports.Sink{s1, s2}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{}, Bomb{})
 
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.com/", nil))
 
@@ -121,7 +121,7 @@ func TestProxyBlocksReturns403(t *testing.T) {
 	u, _ := url.Parse(upstream.URL)
 
 	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionBlock, Tier: ports.TierBlocked}}
-	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{})
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{}, Bomb{})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/x", nil))
@@ -142,7 +142,7 @@ func TestProxyTarpitServesMaze(t *testing.T) {
 
 	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionTarpit, Tier: ports.TierConfirmed}}
 	maze := &fakeMaze{}
-	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), maze, PoW{})
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), maze, PoW{}, Bomb{})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/trap/x", nil))
@@ -199,7 +199,7 @@ func newPoWHandler(t *testing.T, eng ports.Engine, fc *fakeChallenger, all bool)
 	t.Cleanup(upstream.Close)
 	u, _ := url.Parse(upstream.URL)
 	return New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{},
-		PoW{Challenger: fc, VerifyPath: "/.well-known/henbane/verify", ChallengeAll: all})
+		PoW{Challenger: fc, VerifyPath: "/.well-known/henbane/verify", ChallengeAll: all}, Bomb{})
 }
 
 func TestProxyChallengeAllChallengesUnauthed(t *testing.T) {
@@ -248,5 +248,54 @@ func TestProxyChallengeDoesNotOverrideBlock(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/x", nil))
 	if rec.Code != http.StatusForbidden || fc.challenged != 0 {
 		t.Errorf("blocked under challenge-all: status=%d challenged=%d, want 403/0", rec.Code, fc.challenged)
+	}
+}
+
+type fakeBomb struct{ writes int }
+
+func (f *fakeBomb) WriteGzip(w io.Writer, _ string) error {
+	f.writes++
+	_, err := io.WriteString(w, "BOMB")
+	return err
+}
+
+func bombHandler(t *testing.T, maze *fakeMaze, fb *fakeBomb) *Handler {
+	t.Helper()
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(upstream.Close)
+	u, _ := url.Parse(upstream.URL)
+	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionTarpit, Tier: ports.TierConfirmed}}
+	return New(u, eng, nil, discardLogger(), clientip.NewResolver(nil), maze, PoW{}, Bomb{Writer: fb, OnConfirmed: true})
+}
+
+func TestProxyBombReplacesTarpitWhenGzip(t *testing.T) {
+	fb, maze := &fakeBomb{}, &fakeMaze{}
+	h := bombHandler(t, maze, fb)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/trap/x", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if fb.writes != 1 || maze.hits != 0 {
+		t.Errorf("bomb writes=%d maze hits=%d, want 1/0", fb.writes, maze.hits)
+	}
+	if rec.Header().Get("Content-Encoding") != "gzip" {
+		t.Error("bomb response must set Content-Encoding: gzip")
+	}
+	if rec.Body.String() != "BOMB" {
+		t.Errorf("body = %q, want BOMB", rec.Body.String())
+	}
+}
+
+func TestProxyBombFallsBackToMazeWithoutGzip(t *testing.T) {
+	fb, maze := &fakeBomb{}, &fakeMaze{}
+	h := bombHandler(t, maze, fb)
+	// No Accept-Encoding: gzip => must NOT bomb; serve the maze instead.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/trap/x", nil))
+	if fb.writes != 0 {
+		t.Errorf("bomb writes = %d, want 0 (no gzip => no bomb)", fb.writes)
+	}
+	if maze.hits != 1 || !strings.Contains(rec.Body.String(), "maze:") {
+		t.Errorf("expected maze fallback, got hits=%d body=%q", maze.hits, rec.Body.String())
 	}
 }
