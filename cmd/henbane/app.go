@@ -16,10 +16,13 @@ import (
 // newHandler wires config into the engine, sinks, and proxy adapter.
 func newHandler(cfg config.Config, logger *slog.Logger) (http.Handler, error) {
 	upstream, err := url.Parse(cfg.Upstream)
-	if err != nil || upstream.Scheme == "" || upstream.Host == "" {
-		return nil, fmt.Errorf("invalid upstream %q", cfg.Upstream)
+	if err != nil {
+		return nil, fmt.Errorf("invalid upstream %q: %w", cfg.Upstream, err)
+	}
+	if upstream.Scheme == "" || upstream.Host == "" {
+		return nil, fmt.Errorf("invalid upstream %q: missing scheme or host", cfg.Upstream)
 	}
 	engine := core.NewEngine()
 	sinks := []ports.Sink{sink.NewSlogSink(logger)}
-	return proxy.New(upstream, engine, sinks), nil
+	return proxy.New(upstream, engine, sinks, logger), nil
 }

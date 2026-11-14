@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/henbane-sh/henbane/internal/config"
 )
@@ -23,10 +28,37 @@ func main() {
 		os.Exit(2)
 	}
 
-	logger.Info("henbane starting", "listen", cfg.Listen, "upstream", cfg.Upstream)
-	srv := &http.Server{Addr: cfg.Listen, Handler: h}
-	if err := srv.ListenAndServe(); err != nil {
+	if err := serve(cfg, h, logger); err != nil {
 		logger.Error("server stopped", "err", err)
 		os.Exit(1)
+	}
+}
+
+// serve runs the HTTP server until SIGINT/SIGTERM, then drains in-flight
+// requests for up to 10s before returning.
+func serve(cfg config.Config, h http.Handler, logger *slog.Logger) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	srv := &http.Server{Addr: cfg.Listen, Handler: h}
+
+	errCh := make(chan error, 1)
+	go func() {
+		logger.Info("henbane starting", "listen", cfg.Listen, "upstream", cfg.Upstream)
+		err := srv.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+		errCh <- err
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		logger.Info("shutdown signal received; draining")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
 	}
 }
