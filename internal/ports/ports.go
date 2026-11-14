@@ -118,3 +118,13 @@ type Detector interface {
 	Name() string
 	Inspect(r RequestView) (Result, bool)
 }
+
+// Poisoner produces deterministic plain-text poison paragraphs for a maze page.
+// Plain text ONLY: the maze template escapes it, so a Poisoner can never emit
+// raw HTML (zero injection surface). Implementations must be deterministic for a
+// given seed, concurrency-safe, and bounded in CPU and output size. n is the
+// requested paragraph count, already clamped by the caller.
+type Poisoner interface {
+	Name() string
+	Paragraphs(seed int64, n int) []string
+}
