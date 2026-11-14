@@ -7,6 +7,8 @@
 
 # Local tooling settings
 .claude/
+.superpowers/
+docs/superpowers/
 
 # logo/branding scratch
 .playwright-mcp/
