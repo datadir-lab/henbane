@@ -3,28 +3,24 @@ package proxy
 
 import (
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/netip"
 	"net/url"
 
+	"github.com/henbane-sh/henbane/internal/clientip"
 	"github.com/henbane-sh/henbane/internal/ports"
 )
 
-// requestView adapts *http.Request to ports.RequestView.
-type requestView struct{ r *http.Request }
+// requestView adapts *http.Request to ports.RequestView, resolving the client
+// IP through the trusted-proxy resolver.
+type requestView struct {
+	r        *http.Request
+	resolver *clientip.Resolver
+}
 
 func (v requestView) IP() netip.Addr {
-	host, _, err := net.SplitHostPort(v.r.RemoteAddr)
-	if err != nil {
-		host = v.r.RemoteAddr
-	}
-	addr, err := netip.ParseAddr(host)
-	if err != nil {
-		return netip.Addr{}
-	}
-	return addr
+	return v.resolver.ClientIP(v.r.RemoteAddr, v.r.Header.Values("X-Forwarded-For"))
 }
 func (v requestView) UserAgent() string         { return v.r.UserAgent() }
 func (v requestView) Method() string            { return v.r.Method }
@@ -33,32 +29,27 @@ func (v requestView) Header(name string) string { return v.r.Header.Get(name) }
 
 // Handler is the reverse-proxy HTTP handler fronting an upstream.
 type Handler struct {
-	engine ports.Engine
-	sinks  []ports.Sink
-	logger *slog.Logger
-	rp     *httputil.ReverseProxy
+	engine   ports.Engine
+	sinks    []ports.Sink
+	logger   *slog.Logger
+	resolver *clientip.Resolver
+	rp       *httputil.ReverseProxy
 }
 
 // New builds a Handler proxying to upstream, consulting engine and fanning
-// events to sinks. Upstream transport errors are routed through logger
-// (structured) instead of the stdlib default logger. logger must be non-nil.
-func New(upstream *url.URL, engine ports.Engine, sinks []ports.Sink, logger *slog.Logger) *Handler {
+// events to sinks. resolver determines the client IP; logger must be non-nil.
+func New(upstream *url.URL, engine ports.Engine, sinks []ports.Sink, logger *slog.Logger, resolver *clientip.Resolver) *Handler {
 	rp := httputil.NewSingleHostReverseProxy(upstream)
 	rp.ErrorLog = slog.NewLogLogger(logger.Handler(), slog.LevelError)
 	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		logger.Error("upstream proxy error", "err", err, "path", r.URL.Path)
 		w.WriteHeader(http.StatusBadGateway)
 	}
-	return &Handler{
-		engine: engine,
-		sinks:  sinks,
-		logger: logger,
-		rp:     rp,
-	}
+	return &Handler{engine: engine, sinks: sinks, logger: logger, resolver: resolver, rp: rp}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	verdict, events := h.engine.Decide(r.Context(), requestView{r: r})
+	verdict, events := h.engine.Decide(r.Context(), requestView{r: r, resolver: h.resolver})
 	for _, e := range events {
 		for _, s := range h.sinks {
 			s.Emit(e)
@@ -67,12 +58,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch verdict.Action {
 	case ports.ActionAllow:
 		h.rp.ServeHTTP(w, r)
+	case ports.ActionBlock:
+		http.Error(w, "forbidden", http.StatusForbidden)
 	default:
-		// Fail closed. Only ActionAllow proxies to the upstream. Later slices
-		// add explicit cases for challenge/tarpit/poison/block; until an action
-		// has a handler, it must NOT silently pass traffic through — a bug that
-		// left the engine returning a non-allow verdict here would otherwise
-		// fail *open*. Respond 500 rather than serve the upstream.
+		// Fail closed: actions without a handler yet (challenge/tarpit/poison,
+		// added in later slices) must NOT pass traffic through.
 		h.logger.Error("unhandled verdict action; failing closed",
 			"action", verdict.Action.String(),
 			"tier", verdict.Tier.String(),

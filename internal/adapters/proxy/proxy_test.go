@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"net/netip"
 	"net/url"
 	"testing"
 
+	"github.com/henbane-sh/henbane/internal/clientip"
 	"github.com/henbane-sh/henbane/internal/core"
 	"github.com/henbane-sh/henbane/internal/ports"
 )
@@ -42,7 +42,7 @@ func TestProxyForwardsAndEmits(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := &recordingSink{}
-	h := New(u, core.NewEngine(core.Policy{}), []ports.Sink{rs}, discardLogger())
+	h := New(u, core.NewEngine(core.Policy{}), []ports.Sink{rs}, discardLogger(), clientip.NewResolver(nil))
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/page", nil)
 	req.Header.Set("User-Agent", "curl/8")
@@ -69,8 +69,10 @@ func TestProxyFailsClosedOnNonAllow(t *testing.T) {
 	defer upstream.Close()
 	u, _ := url.Parse(upstream.URL)
 
-	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionBlock, Tier: ports.TierBlocked}}
-	h := New(u, eng, nil, discardLogger())
+	// ActionChallenge has no explicit case yet (added in a later slice); it
+	// must fall through to the fail-closed default, not pass traffic through.
+	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionChallenge, Tier: ports.TierSuspect}}
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/x", nil))
@@ -93,7 +95,7 @@ func TestProxyFansOutEveryEventToEverySink(t *testing.T) {
 		events:  []ports.Event{{Path: "/a"}, {Path: "/b"}},
 	}
 	s1, s2 := &recordingSink{}, &recordingSink{}
-	h := New(u, eng, []ports.Sink{s1, s2}, discardLogger())
+	h := New(u, eng, []ports.Sink{s1, s2}, discardLogger(), clientip.NewResolver(nil))
 
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.com/", nil))
 
@@ -102,13 +104,33 @@ func TestProxyFansOutEveryEventToEverySink(t *testing.T) {
 	}
 }
 
-func TestRequestViewIPParsing(t *testing.T) {
-	valid := requestView{r: &http.Request{RemoteAddr: "203.0.113.7:4321"}}
-	if got := valid.IP(); got != netip.MustParseAddr("203.0.113.7") {
-		t.Errorf("IP() = %v, want 203.0.113.7", got)
+func TestProxyBlocksReturns403(t *testing.T) {
+	hit := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hit = true }))
+	defer upstream.Close()
+	u, _ := url.Parse(upstream.URL)
+
+	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionBlock, Tier: ports.TierBlocked}}
+	h := New(u, eng, nil, discardLogger(), clientip.NewResolver(nil))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/x", nil))
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
 	}
-	invalid := requestView{r: &http.Request{RemoteAddr: "not-an-ip"}}
-	if got := invalid.IP(); got.IsValid() {
-		t.Errorf("IP() = %v, want invalid Addr for unparseable RemoteAddr", got)
+	if hit {
+		t.Error("upstream called for a blocked request")
+	}
+}
+
+func TestRequestViewUsesResolver(t *testing.T) {
+	// Edge resolver => client IP is the connection address.
+	v := requestView{
+		r:        &http.Request{RemoteAddr: "203.0.113.7:4321", Header: http.Header{}},
+		resolver: clientip.NewResolver(nil),
+	}
+	if got := v.IP().String(); got != "203.0.113.7" {
+		t.Errorf("IP() = %s, want 203.0.113.7", got)
 	}
 }
