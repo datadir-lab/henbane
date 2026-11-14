@@ -81,3 +81,49 @@ func TestNewHandlerBlocksDenylistedUA(t *testing.T) {
 		t.Errorf("allowed body = %q, want upstream body", string(body))
 	}
 }
+
+func TestNewHandlerHoneypotFlagsClient(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "upstream body")
+	}))
+	defer upstream.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{
+		Upstream: upstream.URL,
+		Honeypot: config.Honeypot{Enabled: true, Path: "/trap", MaxFlagged: 100},
+	}
+	h, err := newHandler(cfg, logger, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	// A normal request first is allowed (same client).
+	if resp, _ := http.Get(front.URL + "/ok"); resp != nil {
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if string(b) != "upstream body" {
+			t.Fatalf("pre-trap body = %q, want upstream body", string(b))
+		}
+	}
+	// Trip the trap → 403.
+	trapResp, err := http.Get(front.URL + "/trap/anything")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trapResp.Body.Close()
+	if trapResp.StatusCode != http.StatusForbidden {
+		t.Errorf("trap status = %d, want 403", trapResp.StatusCode)
+	}
+	// Now the same client is flagged → a NORMAL request is also 403.
+	after, err := http.Get(front.URL + "/ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after.Body.Close()
+	if after.StatusCode != http.StatusForbidden {
+		t.Errorf("post-trap normal status = %d, want 403 (client flagged)", after.StatusCode)
+	}
+}

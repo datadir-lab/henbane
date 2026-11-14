@@ -13,6 +13,8 @@ import (
 	"github.com/henbane-sh/henbane/internal/config"
 	"github.com/henbane-sh/henbane/internal/core"
 	"github.com/henbane-sh/henbane/internal/detect/denylist"
+	"github.com/henbane-sh/henbane/internal/detect/honeypot"
+	"github.com/henbane-sh/henbane/internal/flagstore"
 	"github.com/henbane-sh/henbane/internal/ports"
 )
 
@@ -43,6 +45,18 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 	}
 	if len(cfg.Deny.UserAgents) > 0 {
 		detectors = append(detectors, denylist.NewUA(cfg.Deny.UserAgents))
+	}
+
+	if cfg.Honeypot.Enabled {
+		ttl, err := cfg.HoneypotTTL()
+		if err != nil {
+			return nil, err
+		}
+		max := cfg.Honeypot.MaxFlagged
+		if max <= 0 {
+			max = 100000
+		}
+		detectors = append(detectors, honeypot.New(cfg.Honeypot.Path, flagstore.New(max, ttl)))
 	}
 
 	engine := core.NewEngine(detectors...)
