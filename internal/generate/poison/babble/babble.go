@@ -69,7 +69,10 @@ func (b *Babble) paragraph(rng *rand.Rand) string {
 	key := b.starts[rng.Intn(len(b.starts))]
 	parts := strings.Split(key, " ")
 	target := minWordsPerPara + rng.Intn(maxWordsPerPara-minWordsPerPara+1)
-	for len(parts) < target {
+	// Cap iterations so a pathological corpus with no usable continuations (e.g. a
+	// two-word operator-supplied file, where the only start has an empty chain) can
+	// never spin forever — fail safe to a shorter paragraph instead of hanging.
+	for i := 0; len(parts) < target && i < target*8; i++ {
 		nexts := b.chain[key]
 		if len(nexts) == 0 {
 			key = b.starts[rng.Intn(len(b.starts))]
