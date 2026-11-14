@@ -223,6 +223,11 @@ cosign verify ghcr.io/datadir-lab/henbane:<ver> \
   --certificate-identity-regexp '^https://github.com/datadir-lab/henbane/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
+cosign verify-attestation ghcr.io/datadir-lab/henbane:<ver> \
+  --type spdxjson \
+  --certificate-identity-regexp '^https://github.com/datadir-lab/henbane/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
 slsa-verifier verify-image ghcr.io/datadir-lab/henbane:<ver> \
   --source-uri github.com/datadir-lab/henbane
 ```

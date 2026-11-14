@@ -50,6 +50,11 @@ jobs:
           digest="$(docker buildx imagetools inspect "${name}:${GITHUB_REF_NAME#v}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
           echo "name=${name}" >> "$GITHUB_OUTPUT"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+      - name: SBOM and attest the image
+        run: |
+          img="${{ steps.image.outputs.name }}@${{ steps.image.outputs.digest }}"
+          syft "$img" -o spdx-json=image.sbom.spdx.json
+          cosign attest --yes --type spdxjson --predicate image.sbom.spdx.json "$img"
       - name: Warm the Go module proxy
         run: |
           curl -fsS "https://proxy.golang.org/github.com/datadir-lab/henbane/@v/${GITHUB_REF_NAME}.info" || true
