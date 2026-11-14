@@ -37,6 +37,7 @@ func TestCorePurity(t *testing.T) {
 		mainModule + "/internal/generate/poison/babble",
 		mainModule + "/internal/generate/poison/article",
 		mainModule + "/internal/generate/poison/canary",
+		mainModule + "/internal/pow",
 	}
 
 	for _, target := range targets {
