@@ -1,5 +1,6 @@
 // Package labyrinth generates a deterministic, unbounded maze of linked HTML
-// pages used to detain confirmed crawlers. It imports only the standard library.
+// pages used to detain confirmed crawlers. It imports only the standard library
+// and internal/ports (for the Poisoner interface).
 package labyrinth
 
 import (
