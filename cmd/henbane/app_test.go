@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/henbane-sh/henbane/internal/config"
+	"github.com/datadir-lab/henbane/internal/config"
 )
 
 func TestNewHandlerProxiesUpstream(t *testing.T) {

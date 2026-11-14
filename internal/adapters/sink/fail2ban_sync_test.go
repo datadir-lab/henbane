@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
 
 // TestFail2banFilterMatchesSinkOutput keeps deploy/fail2ban/henbane.conf in sync

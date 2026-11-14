@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
 
 type fakeView struct{}

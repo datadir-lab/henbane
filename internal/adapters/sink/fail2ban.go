@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
 
 // Fail2banSink writes a stable one-line record for each blocked request, in the

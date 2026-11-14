@@ -1,4 +1,4 @@
-module github.com/henbane-sh/henbane
+module github.com/datadir-lab/henbane
 
 go 1.26.11
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
 
 var _ ports.Poisoner = (*Canary)(nil)

@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/henbane-sh/henbane/internal/config"
+	"github.com/datadir-lab/henbane/internal/config"
 )
 
 func main() {

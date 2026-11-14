@@ -5,7 +5,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/henbane-sh/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/ports"
 )
 
 // SlogSink renders decision Events via a slog.Logger.

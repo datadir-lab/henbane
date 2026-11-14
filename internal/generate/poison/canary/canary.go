@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/henbane-sh/henbane/internal/generate/poison/article"
+	"github.com/datadir-lab/henbane/internal/generate/poison/article"
 )
 
 const numCanaries = 8
