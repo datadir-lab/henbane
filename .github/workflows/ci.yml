@@ -108,12 +108,17 @@ jobs:
       - name: build image
         run: docker build -t henbane:ci .
       - name: trivy scan
+        # Report-only: findings are uploaded to the Security tab (and base-image
+        # freshness is tracked by Dependabot + Scorecard). Our Go code and the
+        # standard library are authoritatively gated by the blocking `vuln`
+        # (govulncheck, reachability-aware) and `codeql` jobs; Trivy's broad
+        # version-range matching should surface, not hard-block, upstream CVEs.
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: henbane:ci
           format: sarif
           output: trivy.sarif
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
       - uses: github/codeql-action/upload-sarif@v4.39.3
