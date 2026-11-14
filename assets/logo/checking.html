@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Checking your browser…</title>
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="fonts.css">
+<style>
+  :root{
+    --paper:#f0eedd; --ink:#1b1d14; --mut:#524f43; --rule:#c7bfa6; --green:#33512f; --gline:#5f7a3f;
+    --serif:'IMFell',Georgia,serif; --mono:ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--serif);
+    display:grid;place-items:center;padding:32px}
+  .box{width:100%;max-width:430px;text-align:center}
+
+  h1{font-size:27px;font-weight:400;margin:0 0 8px}
+  .lead{color:var(--mut);font-size:16px;margin:0 0 26px;line-height:1.5}
+
+  .bar{height:7px;border-radius:4px;background:#e4ddc6;border:1px solid var(--rule);overflow:hidden}
+  .bar>i{display:block;height:100%;width:0;background:var(--gline);transition:width .2s linear}
+  .status{display:flex;justify-content:space-between;margin-top:9px;font-family:var(--mono);font-size:12px;color:var(--mut)}
+  .status .s.ok{color:var(--green)}
+
+  .why{margin:24px 0 0;text-align:left;color:#453f32;font-size:15.5px;line-height:1.55}
+  .why p{margin:0 0 10px}
+  .why p:last-child{margin:0}
+
+  footer{margin-top:30px;font-family:var(--mono);font-size:12px;color:var(--mut);
+    display:flex;align-items:center;justify-content:center;gap:8px}
+  footer img{width:18px;height:18px;display:block}
+  footer a{color:var(--green);text-decoration:none;border-bottom:1px solid #b9c09e}
+  footer a:hover{color:#223a1f;border-color:#223a1f}
+</style>
+
+<div class="box">
+  <h1>Checking your browser</h1>
+  <p class="lead">One moment while we make sure you're not an automated bot.</p>
+
+  <div class="bar"><i id="fill"></i></div>
+  <div class="status"><span class="s" id="lbl">working…</span><span id="pct">0%</span></div>
+
+  <div class="why">
+    <p>Your browser is solving a short math puzzle before the page opens. It is quick for a real visitor, but costly for a bot trying to grab thousands of pages at once.</p>
+    <p>This keeps out automated scrapers, the programs that copy whole sites to train AI. It happens once and takes a second or two. No CAPTCHA, no account, no cookies, nothing tracked.</p>
+  </div>
+
+  <footer>
+    <img src="henbane-flower.png" alt="">
+    Powered by <a href="https://github.com/datadir-lab/henbane" target="_blank" rel="noopener">henbane</a>
+  </footer>
+</div>
+
+<script>
+  const fill=document.getElementById('fill'), pct=document.getElementById('pct'), lbl=document.getElementById('lbl');
+  let p=0;
+  const t=setInterval(()=>{
+    p=Math.min(100, p + 1.6 + Math.random()*2.4);
+    fill.style.width=p.toFixed(1)+'%'; pct.textContent=Math.round(p)+'%';
+    if(p>=100){ clearInterval(t); lbl.textContent='verified, opening the page'; lbl.className='s ok'; }
+  },170);
+</script>
