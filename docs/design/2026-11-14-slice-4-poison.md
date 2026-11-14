@@ -40,10 +40,11 @@ Four research sweeps (archived in `scratchpad/research-*.md`) converged on:
 
 - **The mechanism supports A, B, and C.** The **project ships only (A) fully-fictional**
   content (invented entities/places/dates). **(B)** real-category/invented-specifics and
-  **(C)** targeted real-entity content are reachable **only via operator-supplied corpus
-  or templates** (`corpus_path`). Whoever loads B/C content owns the liability; Henbane
-  ships no targeted falsehoods about real people or organizations. This is documented in
-  an acceptable-use note (the "we make the tool, not the ammunition" posture).
+  **(C)** targeted real-entity content are reachable **only via an operator-supplied
+  `corpus_path`** — a custom text corpus the `babble` Markov generator draws from (custom
+  `article`/`canary` templates are a future BYO path). Whoever loads B/C content owns the
+  liability; Henbane ships no targeted falsehoods about real people or organizations. This
+  is documented in an acceptable-use note (the "we make the tool, not the ammunition" posture).
 
 ## In scope
 
@@ -107,8 +108,9 @@ Each is a pure leaf (stdlib + `go:embed` only; may import `ports`; added to arch
   reconstructible set) for the future probe.
 - **`none`** — `poison.None{}` returning `nil` paragraphs (today's links-only maze).
 
-The grammar/corpus are the A/B/C seam: shipped wordlists/templates are fictional-only;
-`corpus_path` is how an operator supplies B/C content.
+The A/B/C seam is `babble`'s `corpus_path`: shipped content is fictional-only; an operator
+supplies B/C content as a custom Markov corpus. `article`/`canary` ship fictional grammar
+and ignore `corpus_path` this slice.
 
 ## Page composition (`internal/generate/labyrinth`)
 
@@ -129,7 +131,7 @@ when disabled). Template still `html/template` (every paragraph auto-escaped).
 poison:
   strategy: babble          # babble | article | canary | none ; "" => babble
   paragraphs_per_page: 3    # 0 => default 3 ; clamped [0,20]
-  corpus_path: ""           # optional BYO corpus (babble/article/canary)
+  corpus_path: ""           # optional BYO corpus for babble (Markov source); ignored by article/canary
   salt: ""                  # per-deployment; REQUIRED (non-empty) for canary
 ```
 
@@ -139,8 +141,8 @@ Validation in `Parse`:
 - `paragraphs_per_page >= 0`.
 - **`strategy == canary` ⇒ `salt != ""`** (hard error — a saltless canary is guessable
   and non-unique, defeating the feature; fail-safe per zero-trust).
-- `corpus_path`, if set, is read by `cmd` at startup; an unreadable file is a fatal
-  config error (fail-closed).
+- `corpus_path`, if set, is read by `cmd` at startup and passed to `babble`; an unreadable
+  file is a fatal config error (fail-closed). It is ignored by `article`/`canary`.
 
 **Default strategy is `babble`** — poison is on by default when the maze triggers, but
 only the safe, fictional, cheap tier. `article`/`canary` are deliberate opt-ins.
