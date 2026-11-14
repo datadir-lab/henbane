@@ -57,3 +57,22 @@ jobs:
         run: |
           go install github.com/siderolabs/conform/cmd/conform@latest
           "$(go env GOPATH)/bin/conform" enforce --base-branch=origin/${{ github.base_ref }}
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build image
+        run: docker build -t henbane:ci .
+      - name: trivy scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: henbane:ci
+          format: sarif
+          output: trivy.sarif
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy.sarif
