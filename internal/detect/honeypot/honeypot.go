@@ -31,6 +31,16 @@ func (d detector) Name() string { return "honeypot" }
 func (d detector) Inspect(r ports.RequestView) (ports.Result, bool) {
 	ip := r.IP().Unmap()
 	if strings.HasPrefix(r.Path(), d.prefix) {
+		// The trap path is public (robots.txt + a hidden link), so an attacker
+		// can lure a victim's browser into fetching it cross-site (e.g.
+		// <img src=trap>) to get that victim's real IP flagged and blocked. A
+		// browser loading a cross-site subresource sends Sec-Fetch-Site:
+		// cross-site, so ignore those. Real crawlers fetch the bait same-origin
+		// while crawling, or are non-browser clients that send no Sec-Fetch
+		// headers — both still trip the trap.
+		if r.Header("Sec-Fetch-Site") == "cross-site" {
+			return ports.Result{}, false
+		}
 		if ip.IsValid() {
 			d.store.Flag(ip)
 		}

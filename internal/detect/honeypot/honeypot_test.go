@@ -8,15 +8,21 @@ import (
 )
 
 type view struct {
-	ip   netip.Addr
-	path string
+	ip       netip.Addr
+	path     string
+	secFetch string
 }
 
-func (v view) IP() netip.Addr       { return v.ip }
-func (v view) UserAgent() string    { return "" }
-func (v view) Method() string       { return "GET" }
-func (v view) Path() string         { return v.path }
-func (v view) Header(string) string { return "" }
+func (v view) IP() netip.Addr    { return v.ip }
+func (v view) UserAgent() string { return "" }
+func (v view) Method() string    { return "GET" }
+func (v view) Path() string      { return v.path }
+func (v view) Header(name string) string {
+	if name == "Sec-Fetch-Site" {
+		return v.secFetch
+	}
+	return ""
+}
 
 type memStore map[netip.Addr]bool
 
@@ -64,5 +70,20 @@ func TestInvalidIPNotFlagged(t *testing.T) {
 	}
 	if store.Flagged(netip.Addr{}) {
 		t.Error("invalid IP must not be flagged")
+	}
+}
+
+func TestCrossSiteTrapNotFlagged(t *testing.T) {
+	store := memStore{}
+	d := New("/.well-known/hb-trap", store)
+	ip := netip.MustParseAddr("203.0.113.9")
+	// A victim's browser lured into loading the trap cross-site (attacker embed)
+	// must NOT be flagged — otherwise an attacker could 403 arbitrary users.
+	res, ok := d.Inspect(view{ip: ip, path: "/.well-known/hb-trap/x", secFetch: "cross-site"})
+	if ok {
+		t.Errorf("cross-site subresource must not fire the trap: res=%+v", res)
+	}
+	if store.Flagged(ip) {
+		t.Error("cross-site trap load must not flag the client")
 	}
 }

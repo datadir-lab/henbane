@@ -58,3 +58,16 @@ func TestDecideAllowsWhenNoneFire(t *testing.T) {
 		t.Errorf("action = %v, want allow", v.Action)
 	}
 }
+
+func TestDecideKeepsHighestTierRegardlessOfOrder(t *testing.T) {
+	// Higher tier fires FIRST, lower SECOND: the max-accumulator must not
+	// downgrade to the later, lower tier.
+	e := NewEngine(
+		fakeDet{res: ports.Result{Signal: "hi", Tier: ports.TierBlocked}, fired: true},
+		fakeDet{res: ports.Result{Signal: "lo", Tier: ports.TierConfirmed}, fired: true},
+	)
+	v, _ := e.Decide(context.Background(), fakeView{})
+	if v.Tier != ports.TierBlocked {
+		t.Errorf("tier = %v, want blocked (descending order must not downgrade)", v.Tier)
+	}
+}
