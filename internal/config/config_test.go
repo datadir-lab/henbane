@@ -180,3 +180,60 @@ func TestParseRejectsNegativeLinks(t *testing.T) {
 		t.Fatal("expected error for negative links_per_page")
 	}
 }
+
+func parsePoison(t *testing.T, body string) (Config, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "henbane.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Parse([]string{"-config", path})
+}
+
+func TestParsePoisonDefaultStrategy(t *testing.T) {
+	cfg, err := parsePoison(t, "upstream: \"http://a:1\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Poison.Strategy != "" {
+		t.Errorf("strategy = %q, want \"\" (defaults to babble downstream)", cfg.Poison.Strategy)
+	}
+}
+
+func TestParsePoisonValidStrategies(t *testing.T) {
+	for _, s := range []string{"babble", "article", "canary", "none"} {
+		body := "upstream: \"http://a:1\"\npoison:\n  strategy: \"" + s + "\"\n  salt: \"x\"\n"
+		if _, err := parsePoison(t, body); err != nil {
+			t.Errorf("strategy %q rejected: %v", s, err)
+		}
+	}
+}
+
+func TestParsePoisonUnknownStrategy(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npoison:\n  strategy: \"bogus\"\n"); err == nil {
+		t.Error("expected error for unknown poison.strategy")
+	}
+}
+
+func TestParsePoisonCanaryRequiresSalt(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npoison:\n  strategy: \"canary\"\n"); err == nil {
+		t.Error("canary without salt must be rejected")
+	}
+}
+
+func TestParsePoisonNegativeParagraphs(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npoison:\n  paragraphs_per_page: -1\n"); err == nil {
+		t.Error("negative paragraphs_per_page must be rejected")
+	}
+}
+
+func TestParsePoisonRoundTrip(t *testing.T) {
+	body := "upstream: \"http://a:1\"\npoison:\n  strategy: \"babble\"\n  paragraphs_per_page: 4\n  corpus_path: \"/tmp/c.txt\"\n  salt: \"deploy1\"\n"
+	cfg, err := parsePoison(t, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Poison.ParagraphsPerPage != 4 || cfg.Poison.CorpusPath != "/tmp/c.txt" || cfg.Poison.Salt != "deploy1" {
+		t.Errorf("poison = %+v", cfg.Poison)
+	}
+}
