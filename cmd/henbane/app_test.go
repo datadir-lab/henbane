@@ -202,3 +202,48 @@ func TestPoisonUnreadableCorpusFatal(t *testing.T) {
 		t.Error("expected fatal error for unreadable corpus_path")
 	}
 }
+
+func TestPoWChallengeAllServesInterstitial(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "upstream body")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Upstream: upstream.URL, PoW: config.PoW{Mode: "all", DifficultyBits: 8}}
+	h, err := newHandler(cfg, logger, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+	resp, err := http.Get(front.URL + "/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Checking your browser") {
+		t.Errorf("status=%d, want 200 challenge page", resp.StatusCode)
+	}
+	if strings.Contains(string(body), "upstream body") {
+		t.Error("un-authed request reached upstream under pow.mode=all")
+	}
+}
+
+func TestPoWOffPassesThrough(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "upstream body")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Upstream: upstream.URL, PoW: config.PoW{Mode: "off"}}
+	h, _ := newHandler(cfg, logger, nil)
+	front := httptest.NewServer(h)
+	defer front.Close()
+	resp, _ := http.Get(front.URL + "/page")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "upstream body" {
+		t.Errorf("body = %q, want upstream body (pow off)", string(body))
+	}
+}
