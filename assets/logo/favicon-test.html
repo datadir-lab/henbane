@@ -1,0 +1,74 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>henbane · favicon test</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+  :root{--serif:'IMFell',Georgia,serif;--black:'Unifraktur',serif;--mono:ui-monospace,Menlo,Consolas,monospace;
+        --paper:#efeadd;--night:#14140f;--mut:#777063}
+  *{box-sizing:border-box}
+  body{margin:0;background:#dcd8c9;color:#1c1d14;font-family:var(--serif);padding:30px 34px 70px}
+  h1{font-family:var(--black);font-size:30px;margin:0 0 2px}
+  .sub{font-family:var(--mono);font-size:12px;color:var(--mut);margin:0 0 26px}
+  h2{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin:30px 0 12px;font-weight:400;font-family:var(--mono)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;max-width:900px}
+  .chip{border:1px solid #c7c1ae;border-radius:10px;padding:18px 20px;display:flex;align-items:flex-end;gap:22px}
+  .chip.l{background:var(--paper)} .chip.d{background:var(--night)}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:7px}
+  .cell img{display:block;image-rendering:auto}
+  .cap{font-family:var(--mono);font-size:10px;color:var(--mut)}
+  .chip.d .cap{color:#8a8372}
+
+  /* browser tab mock */
+  .tabs{display:flex;gap:0;margin-top:10px;max-width:560px}
+  .tab{background:#eceadf;border:1px solid #c7c1ae;border-bottom:none;border-radius:7px 7px 0 0;
+       padding:7px 12px;display:flex;align-items:center;gap:8px;font-size:12.5px;font-family:system-ui,sans-serif}
+  .tab img{width:16px;height:16px}
+  .winbar{height:8px;background:#eceadf;border:1px solid #c7c1ae;border-top:none;max-width:560px}
+
+  .note{max-width:620px;margin-top:14px;font-size:15px;color:#3f3d30;line-height:1.5}
+</style>
+
+<h1>henbane — favicon test</h1>
+<div class="sub">clean flower (transparent) vs. current (border + background) · 128 → 16 px</div>
+
+<h2>A · flower only — no border, no background (henbane-flower.png)</h2>
+<div class="grid">
+  <div class="chip l">
+    <div class="cell"><img src="henbane-flower.png" width="128" height="128"><div class="cap">128</div></div>
+    <div class="cell"><img src="henbane-flower.png" width="64" height="64"><div class="cap">64</div></div>
+    <div class="cell"><img src="henbane-flower.png" width="48" height="48"><div class="cap">48</div></div>
+    <div class="cell"><img src="henbane-flower.png" width="32" height="32"><div class="cap">32</div></div>
+    <div class="cell"><img src="henbane-flower.png" width="16" height="16"><div class="cap">16</div></div>
+  </div>
+  <div class="chip d">
+    <div class="cell"><img src="henbane-flower.png" width="128" height="128"><div class="cap">128</div></div>
+    <div class="cell"><img src="henbane-flower.png" width="64" height="64"><div class="cap">64</div></div>
+    <div class="cell"><img src="henbane-flower.png" width="48" height="48"><div class="cap">48</div></div>
+    <div class="cell"><img src="henbane-flower.png" width="32" height="32"><div class="cap">32</div></div>
+    <div class="cell"><img src="henbane-flower.png" width="16" height="16"><div class="cap">16</div></div>
+  </div>
+</div>
+<div class="tabs">
+  <div class="tab"><img src="henbane-flower.png"><span>henbane — checking…</span></div>
+  <div class="tab" style="background:#e2dfd2;opacity:.8"><img src="henbane-flower.png"><span>docs</span></div>
+</div><div class="winbar"></div>
+
+<h2>B · current — border + faint background (henbane-logo-green.png)</h2>
+<div class="grid">
+  <div class="chip l">
+    <div class="cell"><img src="henbane-logo-green.png" width="128" height="128"><div class="cap">128</div></div>
+    <div class="cell"><img src="henbane-logo-green.png" width="64" height="64"><div class="cap">64</div></div>
+    <div class="cell"><img src="henbane-logo-green.png" width="48" height="48"><div class="cap">48</div></div>
+    <div class="cell"><img src="henbane-logo-green.png" width="32" height="32"><div class="cap">32</div></div>
+    <div class="cell"><img src="henbane-logo-green.png" width="16" height="16"><div class="cap">16</div></div>
+  </div>
+  <div class="chip d">
+    <div class="cell"><img src="henbane-logo-green-dark.png" width="128" height="128"><div class="cap">128</div></div>
+    <div class="cell"><img src="henbane-logo-green-dark.png" width="64" height="64"><div class="cap">64</div></div>
+    <div class="cell"><img src="henbane-logo-green-dark.png" width="48" height="48"><div class="cap">48</div></div>
+    <div class="cell"><img src="henbane-logo-green-dark.png" width="32" height="32"><div class="cap">32</div></div>
+    <div class="cell"><img src="henbane-logo-green-dark.png" width="16" height="16"><div class="cap">16</div></div>
+  </div>
+</div>
+
+<p class="note">The flower is a <i>detailed</i> mark — it sings at 48px+ and in a lockup, but any photo-derived bloom turns to mush at 16px. For a real favicon that reads at 16/32, the usual move is a <b>separate simplified glyph</b> (a bold 3–5-lobe silhouette drawn from this flower), while this detailed mark stays the primary logo. Want me to draw that tiny companion glyph?</p>
