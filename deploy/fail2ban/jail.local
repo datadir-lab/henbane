@@ -1,0 +1,9 @@
+# Example jail. Henbane already decided the request was ban-worthy, so one hit
+# is enough (maxretry = 1). Adjust logpath to your sinks.fail2ban.path.
+[henbane]
+enabled  = true
+filter   = henbane
+logpath  = /var/log/henbane/ban.log
+maxretry = 1
+findtime = 10m
+bantime  = 1h
