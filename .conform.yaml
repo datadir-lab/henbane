@@ -18,5 +18,6 @@ policies:
           - ci
           - chore
           - revert
-        scopes: []
+        scopes:
+          - '[a-z0-9/-]+'
         descriptionLength: 72
