@@ -260,6 +260,8 @@ Short version: it reliably wastes crawler resources. It does **not**, and cannot
 
 What is honestly measurable is the resource cost you impose (bytes served, crawl depth, dwell time, bot-versus-real ratio), and as a future, clearly labeled, opt-in feature, whether planted `canary` facts surface in live AI-search engines (which measures live retrieval reach, not poisoned training). Henbane is worth running for the resource-cost story alone.
 
+On the **detection** side, [`research/classifier-benchmark.md`](research/classifier-benchmark.md) benchmarks the classifier on a labelled corpus (it catches representative HTTP-library scrapers wearing a spoofed browser User-Agent with no false positives on real browsers, and documents the headless-browser case it *can't* catch) and compares its signal coverage honestly against Anubis, go-away, Nepenthes, Iocaine, CrowdSec, OWASP CRS, and the commercial ML systems — Henbane competes with the open-source gates, not with Cloudflare/DataDome.
+
 ## Acceptable use and content liability
 
 Everything henbane **ships** is fully fictional: the embedded corpus and the `article` and `canary` grammars invent entities, places, and facts, and contain no real people or organizations. That is a deliberate policy.
