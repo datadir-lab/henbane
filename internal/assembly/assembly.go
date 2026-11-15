@@ -6,18 +6,22 @@
 package assembly
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/datadir-lab/henbane/internal/adapters/challenge"
 	"github.com/datadir-lab/henbane/internal/adapters/proxy"
+	"github.com/datadir-lab/henbane/internal/adapters/report"
 	"github.com/datadir-lab/henbane/internal/clientip"
 	"github.com/datadir-lab/henbane/internal/config"
 	"github.com/datadir-lab/henbane/internal/core"
 	"github.com/datadir-lab/henbane/internal/detect/browserhint"
 	"github.com/datadir-lab/henbane/internal/detect/denylist"
 	"github.com/datadir-lab/henbane/internal/detect/honeypot"
+	"github.com/datadir-lab/henbane/internal/detect/remotedeny"
 	"github.com/datadir-lab/henbane/internal/detect/velocity"
 	"github.com/datadir-lab/henbane/internal/flagstore"
 	"github.com/datadir-lab/henbane/internal/generate/bomb"
@@ -30,6 +34,42 @@ import (
 	"github.com/datadir-lab/henbane/internal/ports"
 	"github.com/datadir-lab/henbane/internal/pow"
 )
+
+// FederationParts are the optional federation pieces assembled from config: the
+// consumer detector (joins the engine), the reporter sink (joins the sinks), and
+// the background tasks (feed refresher, report flusher) the caller must run under
+// a cancellable context. Any may be empty when the corresponding half is off.
+type FederationParts struct {
+	Detectors  []ports.Detector
+	Sinks      []ports.Sink
+	Background []func(context.Context)
+}
+
+// Federation builds the optional federation consumer and reporter from cfg. It is
+// shared by the CLI and the embeddable library so both wire federation (and its
+// background tasks) identically.
+func Federation(cfg config.Config, logger *slog.Logger) (FederationParts, error) {
+	var fp FederationParts
+	if cfg.Federation.FeedURL != "" {
+		refresh, err := cfg.FederationRefresh()
+		if err != nil {
+			return FederationParts{}, err
+		}
+		maxEntries := cfg.Federation.MaxEntries
+		if maxEntries == 0 {
+			maxEntries = 1_000_000
+		}
+		det := remotedeny.New()
+		fp.Detectors = append(fp.Detectors, det)
+		fp.Background = append(fp.Background, remotedeny.NewRefresher(det, cfg.Federation.FeedURL, refresh, maxEntries, logger).Run)
+	}
+	if cfg.Federation.ReportURL != "" {
+		rep := report.New(cfg.Federation.ReportURL, cfg.Federation.ReportToken, cfg.Federation.DeploymentID, logger)
+		fp.Sinks = append(fp.Sinks, rep)
+		fp.Background = append(fp.Background, rep.Run)
+	}
+	return fp, nil
+}
 
 // Components are the stateful decision pieces assembled from config. Sinks and
 // the "allowed" origin (reverse proxy or host handler) are supplied by the

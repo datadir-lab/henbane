@@ -11,11 +11,9 @@ import (
 
 	"github.com/datadir-lab/henbane/internal/adapters/metrics"
 	"github.com/datadir-lab/henbane/internal/adapters/proxy"
-	"github.com/datadir-lab/henbane/internal/adapters/report"
 	"github.com/datadir-lab/henbane/internal/adapters/sink"
 	"github.com/datadir-lab/henbane/internal/assembly"
 	"github.com/datadir-lab/henbane/internal/config"
-	"github.com/datadir-lab/henbane/internal/detect/remotedeny"
 	"github.com/datadir-lab/henbane/internal/ports"
 )
 
@@ -33,25 +31,13 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, met
 		return nil, nil, fmt.Errorf("invalid upstream %q: missing scheme or host", cfg.Upstream)
 	}
 
-	// Federation consumer: a remote denylist detector driven by a background
-	// refresher. The detector joins the engine; its refresher is a background task.
-	var extra []ports.Detector
-	var background []func(context.Context)
-	if cfg.Federation.FeedURL != "" {
-		refresh, err := cfg.FederationRefresh()
-		if err != nil {
-			return nil, nil, err
-		}
-		maxEntries := cfg.Federation.MaxEntries
-		if maxEntries == 0 {
-			maxEntries = 1_000_000
-		}
-		det := remotedeny.New()
-		extra = append(extra, det)
-		background = append(background, remotedeny.NewRefresher(det, cfg.Federation.FeedURL, refresh, maxEntries, logger).Run)
+	// Federation consumer + reporter (each optional) plus their background tasks.
+	fed, err := assembly.Federation(cfg, logger)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	comps, err := assembly.Build(cfg, extra...)
+	comps, err := assembly.Build(cfg, fed.Detectors...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -63,19 +49,13 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, met
 	if metricsReg != nil {
 		sinks = append(sinks, metricsReg)
 	}
-	// Federation reporter: an async sink that contributes confirmed detections to
-	// a shared feed; its flusher is a background task.
-	if cfg.Federation.ReportURL != "" {
-		rep := report.New(cfg.Federation.ReportURL, cfg.Federation.ReportToken, cfg.Federation.DeploymentID, logger)
-		sinks = append(sinks, rep)
-		background = append(background, rep.Run)
-	}
+	sinks = append(sinks, fed.Sinks...)
 
 	var handler http.Handler = proxy.New(upstream, comps.Engine, sinks, logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb)
 	if cfg.Robots.Serve {
 		handler = withRobots(buildRobots(cfg), handler)
 	}
-	return handler, background, nil
+	return handler, fed.Background, nil
 }
 
 // buildRobots renders the robots.txt body: Disallow the honeypot trap (so
