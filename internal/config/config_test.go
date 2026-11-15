@@ -34,6 +34,22 @@ func TestParseRequiresUpstream(t *testing.T) {
 	}
 }
 
+func TestParseSidecarNeedsNoUpstream(t *testing.T) {
+	cfg, err := Parse([]string{"-sidecar"})
+	if err != nil {
+		t.Fatalf("sidecar mode must not require an upstream: %v", err)
+	}
+	if !cfg.Sidecar.Enabled {
+		t.Error("-sidecar should enable sidecar mode")
+	}
+}
+
+func TestParseSidecarRejectsUpstream(t *testing.T) {
+	if _, err := Parse([]string{"-sidecar", "-upstream", "http://a:1"}); err == nil {
+		t.Error("sidecar mode with an upstream must be rejected")
+	}
+}
+
 func TestDefault(t *testing.T) {
 	if Default().Listen != ":8080" {
 		t.Errorf("default listen = %q, want :8080", Default().Listen)

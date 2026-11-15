@@ -102,6 +102,17 @@ type AICrawlers struct {
 	SpoofTier string `yaml:"spoof_tier"` // off|suspect|confirmed|block; "" => off
 }
 
+// Sidecar runs Henbane as a ForwardAuth / auth_request server for an existing
+// nginx or Traefik front proxy, instead of as a reverse proxy. The front proxy
+// sends each request to Henbane's auth endpoint; Henbane reconstructs the
+// original request from the forwarded headers, runs the decision pipeline, and
+// answers 204 to allow it (the front proxy then serves the real backend) or a
+// non-2xx deny carrying the challenge page / maze / 403. When enabled, upstream
+// is not required.
+type Sidecar struct {
+	Enabled bool `yaml:"enabled"`
+}
+
 // WebBotAuth configures verification of Web Bot Auth signed agents (RFC 9421 /
 // draft-meunier-web-bot-auth). When enabled, a request carrying a valid Ed25519
 // signature from a key in one of the configured agent Directories is classified
@@ -158,6 +169,7 @@ type Config struct {
 	WebBotAuth     WebBotAuth   `yaml:"webbotauth"`
 	VerifiedBots   VerifiedBots `yaml:"verified_bots"`
 	AICrawlers     AICrawlers   `yaml:"verified_ai_crawlers"`
+	Sidecar        Sidecar      `yaml:"sidecar"`
 }
 
 // FederationRefresh parses Federation.Refresh, defaulting to 1h; must be positive.
@@ -271,9 +283,11 @@ func LoadFile(path string) (Config, error) {
 func Parse(args []string) (Config, error) {
 	fs := flag.NewFlagSet("henbane", flag.ContinueOnError)
 	var path, listen, upstream string
+	var sidecar bool
 	fs.StringVar(&path, "config", "", "path to henbane.yaml")
 	fs.StringVar(&listen, "listen", "", "listen address, e.g. :8080")
 	fs.StringVar(&upstream, "upstream", "", "upstream base URL")
+	fs.BoolVar(&sidecar, "sidecar", false, "run as a ForwardAuth/auth_request server for nginx/Traefik (no upstream)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
@@ -288,8 +302,14 @@ func Parse(args []string) (Config, error) {
 	if upstream != "" {
 		cfg.Upstream = upstream
 	}
-	if cfg.Upstream == "" {
-		return Config{}, fmt.Errorf("upstream is required (set --upstream or upstream: in config)")
+	if sidecar {
+		cfg.Sidecar.Enabled = true
+	}
+	if cfg.Upstream == "" && !cfg.Sidecar.Enabled {
+		return Config{}, fmt.Errorf("upstream is required (set --upstream or upstream:, or run with --sidecar)")
+	}
+	if cfg.Upstream != "" && cfg.Sidecar.Enabled {
+		return Config{}, fmt.Errorf("sidecar mode takes no upstream: unset upstream or disable sidecar")
 	}
 	if err := Validate(cfg); err != nil {
 		return Config{}, err
