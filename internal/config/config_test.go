@@ -498,3 +498,18 @@ func TestParseVerifiedBotsValidation(t *testing.T) {
 		t.Error("a crawler without ua/domains must be rejected")
 	}
 }
+
+func TestParseAICrawlersValidation(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nverified_ai_crawlers:\n  enabled: true\n"); err != nil {
+		t.Errorf("enabled verified_ai_crawlers (defaults) rejected: %v", err)
+	}
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nverified_ai_crawlers:\n  enabled: true\n  spoof_tier: \"block\"\n"); err != nil {
+		t.Errorf("spoof_tier block rejected: %v", err)
+	}
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nverified_ai_crawlers:\n  enabled: true\n  spoof_tier: \"bogus\"\n"); err == nil {
+		t.Error("bad spoof_tier must be rejected")
+	}
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nverified_ai_crawlers:\n  enabled: true\n  spoof_tier: \"suspect\"\n"); err == nil {
+		t.Error("spoof_tier suspect without pow must be rejected")
+	}
+}
