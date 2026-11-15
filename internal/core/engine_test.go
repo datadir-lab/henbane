@@ -144,3 +144,75 @@ func TestVerifierNoOpinionFallsThrough(t *testing.T) {
 		t.Errorf("a no-opinion verifier must fall through to detectors: %+v", v)
 	}
 }
+
+type fakeScorer struct{ results []ports.ScoreResult }
+
+func (fakeScorer) Name() string                                  { return "fakescore" }
+func (s fakeScorer) Score(ports.RequestView) []ports.ScoreResult { return s.results }
+
+func scorer(points ...int) fakeScorer {
+	var rs []ports.ScoreResult
+	for _, p := range points {
+		rs = append(rs, ports.ScoreResult{Signal: "s", Points: p})
+	}
+	return fakeScorer{results: rs}
+}
+
+func TestScoringBelowThresholdAllowsButRecordsSignals(t *testing.T) {
+	// One point, suspect threshold 2: stays Pass, but the evidence is logged.
+	eng := NewEngine().WithScoring(2, 4, scorer(1))
+	v, events := eng.Decide(context.Background(), fakeView{})
+	if v.Tier != ports.TierPass || v.Action != ports.ActionAllow {
+		t.Errorf("verdict = %+v, want allow/pass below threshold", v)
+	}
+	if len(events[0].Signals) != 1 {
+		t.Errorf("sub-threshold evidence must still be recorded, got %v", events[0].Signals)
+	}
+}
+
+func TestScoringReachesSuspect(t *testing.T) {
+	eng := NewEngine().WithScoring(2, 4, scorer(2))
+	v, _ := eng.Decide(context.Background(), fakeView{})
+	if v.Tier != ports.TierSuspect || v.Action != ports.ActionChallenge {
+		t.Errorf("verdict = %+v, want challenge/suspect at the suspect threshold", v)
+	}
+}
+
+func TestScoringCompoundsToConfirmed(t *testing.T) {
+	// Two weak signals (2 + 2 = 4) compound past the confirm threshold — the
+	// fusion that a max()-of-tripwires engine can't express.
+	eng := NewEngine().WithScoring(2, 4, scorer(2), scorer(2))
+	v, _ := eng.Decide(context.Background(), fakeView{})
+	if v.Tier != ports.TierConfirmed || v.Action != ports.ActionTarpit {
+		t.Errorf("verdict = %+v, want tarpit/confirmed when weak signals compound", v)
+	}
+}
+
+func TestScoringOnlyRaisesTier(t *testing.T) {
+	// A definitive Blocked detector must not be downgraded by a low score.
+	eng := NewEngine(fakeDet{res: ports.Result{Signal: "deny", Tier: ports.TierBlocked}, fired: true}).
+		WithScoring(2, 4, scorer(2))
+	v, _ := eng.Decide(context.Background(), fakeView{})
+	if v.Tier != ports.TierBlocked {
+		t.Errorf("tier = %v, want blocked (scoring must only raise)", v.Tier)
+	}
+}
+
+func TestScoringInertWhenDisabled(t *testing.T) {
+	// suspectAt 0 disables scoring even if scorers are present.
+	eng := NewEngine().WithScoring(0, 0, scorer(10))
+	v, _ := eng.Decide(context.Background(), fakeView{})
+	if v.Tier != ports.TierPass {
+		t.Errorf("tier = %v, want pass (scoring disabled)", v.Tier)
+	}
+}
+
+func TestVerifierShortCircuitsBeforeScoring(t *testing.T) {
+	eng := NewEngine().
+		WithVerifiers(fakeVerifier{sig: "good_bot:x", tier: ports.TierPass, ok: true}).
+		WithScoring(2, 4, scorer(10))
+	v, _ := eng.Decide(context.Background(), fakeView{})
+	if v.Action != ports.ActionAllow || !v.Allowlisted {
+		t.Errorf("verdict = %+v, want a verified good bot allowed before scoring runs", v)
+	}
+}

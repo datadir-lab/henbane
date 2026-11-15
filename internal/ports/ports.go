@@ -140,6 +140,34 @@ type Verifier interface {
 	Verify(r RequestView) (sig Signal, tier Tier, ok bool)
 }
 
+// ScoreResult is one piece of weighted soft evidence a Scorer found: a named
+// signal and the suspicion points it contributes.
+type ScoreResult struct {
+	Signal Signal
+	Points int
+}
+
+// Scorer emits weighted soft evidence of automation. Unlike a Detector (which
+// asserts a definitive Tier on its own), a Scorer's points are accumulated
+// across all scorers, and the total escalates the request's tier only once it
+// crosses a threshold. This lets individually-ambiguous signals — a browser
+// User-Agent missing a header it should send, an HTTP/1.1 connection from a
+// client claiming a modern browser — compound into a confident classification
+// while any one alone costs at most a brief challenge. A Scorer returns nil when
+// it finds nothing. Name identifies it for config and logging.
+type Scorer interface {
+	Name() string
+	Score(r RequestView) []ScoreResult
+}
+
+// ProtocolViewer is an optional RequestView capability: the client connection's
+// HTTP major version (1 or 2). Consumers type-assert for it and treat 0 as
+// "unknown" — e.g. when a proxy or CDN re-originates the request to Henbane, the
+// version seen is that hop's, not the client's.
+type ProtocolViewer interface {
+	HTTPMajorVersion() int
+}
+
 // Poisoner produces deterministic plain-text poison paragraphs for a maze page.
 // Plain text ONLY: the maze template escapes it, so a Poisoner can never emit
 // raw HTML (zero injection surface). Implementations must be deterministic for a

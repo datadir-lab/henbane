@@ -11,10 +11,13 @@ import (
 
 type clock func() time.Time
 
-// Engine composes verifiers and detectors into a decision.
+// Engine composes verifiers, detectors, and scorers into a decision.
 type Engine struct {
 	verifiers []ports.Verifier
 	detectors []ports.Detector
+	scorers   []ports.Scorer
+	suspectAt int // score threshold to reach TierSuspect (0 disables scoring)
+	confirmAt int // score threshold to reach TierConfirmed
 	now       clock
 }
 
@@ -29,6 +32,16 @@ func NewEngine(detectors ...ports.Detector) *Engine {
 // It returns the engine for chaining.
 func (e *Engine) WithVerifiers(verifiers ...ports.Verifier) *Engine {
 	e.verifiers = verifiers
+	return e
+}
+
+// WithScoring enables the soft-signal scoring layer: after the detectors run,
+// every scorer's points are summed, and the total escalates the tier — to
+// Suspect at suspectAt, to Confirmed at confirmAt. It only raises the tier, never
+// lowers it, so a definitive detector verdict always stands. With no scorers, or
+// suspectAt <= 0, scoring is inert. It returns the engine for chaining.
+func (e *Engine) WithScoring(suspectAt, confirmAt int, scorers ...ports.Scorer) *Engine {
+	e.suspectAt, e.confirmAt, e.scorers = suspectAt, confirmAt, scorers
 	return e
 }
 
@@ -55,9 +68,39 @@ func (e *Engine) Decide(ctx context.Context, r ports.RequestView) (ports.Verdict
 			}
 		}
 	}
+
+	// Soft-signal fusion: accumulate every scorer's points and let the total
+	// raise (never lower) the tier. A scorer's signals are recorded even when the
+	// total stays below the escalation thresholds, so the evidence is visible in
+	// the decision log.
+	if len(e.scorers) > 0 && e.suspectAt > 0 {
+		score := 0
+		for _, sc := range e.scorers {
+			for _, res := range sc.Score(r) {
+				signals = append(signals, res.Signal)
+				score += res.Points
+			}
+		}
+		if st := e.tierForScore(score); st > tier {
+			tier = st
+		}
+	}
+
 	action := actionForTier(tier)
 	v := ports.Verdict{Action: action, Tier: tier, Reasons: signals}
 	return v, []ports.Event{e.event(r, action, tier, signals)}
+}
+
+// tierForScore maps an accumulated suspicion score to the tier it escalates to.
+func (e *Engine) tierForScore(score int) ports.Tier {
+	switch {
+	case e.confirmAt > 0 && score >= e.confirmAt:
+		return ports.TierConfirmed
+	case score >= e.suspectAt:
+		return ports.TierSuspect
+	default:
+		return ports.TierPass
+	}
 }
 
 // event builds the decision record, enriching it with the client's TLS
