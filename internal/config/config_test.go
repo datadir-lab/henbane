@@ -422,3 +422,19 @@ func TestParseFederationDisabledIgnoresFields(t *testing.T) {
 		t.Errorf("disabled federation must skip validation: %v", err)
 	}
 }
+
+func TestParseFederationReporterRoundTrip(t *testing.T) {
+	cfg, err := parsePoison(t, "upstream: \"http://a:1\"\nfederation:\n  report_url: \"https://feed.example/report\"\n  report_token: \"secret\"\n  deployment_id: \"site-7\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Federation.ReportURL != "https://feed.example/report" || cfg.Federation.ReportToken != "secret" || cfg.Federation.DeploymentID != "site-7" {
+		t.Errorf("federation = %+v", cfg.Federation)
+	}
+}
+
+func TestParseFederationRejectsBadReportURL(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nfederation:\n  report_url: \"ftp://x\"\n"); err == nil {
+		t.Error("non-http report_url must be rejected")
+	}
+}

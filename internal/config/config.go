@@ -64,9 +64,12 @@ type Velocity struct {
 // (FeedURL) pulls a remote denylist and blocks listed clients. Reporter fields
 // (pushing confirmed-bad signals out) are added separately. Both opt-in.
 type Federation struct {
-	FeedURL    string `yaml:"feed_url"`    // consumer: remote denylist URL; empty => disabled
-	Refresh    string `yaml:"refresh"`     // e.g. "1h"; default 1h
-	MaxEntries int    `yaml:"max_entries"` // 0 => default 1,000,000
+	FeedURL      string `yaml:"feed_url"`      // consumer: remote denylist URL; empty => disabled
+	Refresh      string `yaml:"refresh"`       // e.g. "1h"; default 1h
+	MaxEntries   int    `yaml:"max_entries"`   // 0 => default 1,000,000
+	ReportURL    string `yaml:"report_url"`    // reporter: POST confirmed-bad signals here; empty => disabled
+	ReportToken  string `yaml:"report_token"`  // optional bearer token for the report endpoint
+	DeploymentID string `yaml:"deployment_id"` // stable ID so the feed can require cross-reporter consensus
 }
 
 // Metrics configures the Prometheus-style metrics endpoint. It is served on a
@@ -356,6 +359,10 @@ func Validate(cfg Config) error {
 		if _, err := cfg.FederationRefresh(); err != nil {
 			return err
 		}
+	}
+	if cfg.Federation.ReportURL != "" &&
+		!strings.HasPrefix(cfg.Federation.ReportURL, "http://") && !strings.HasPrefix(cfg.Federation.ReportURL, "https://") {
+		return fmt.Errorf("federation.report_url must be an http(s) URL, got %q", cfg.Federation.ReportURL)
 	}
 	return nil
 }
