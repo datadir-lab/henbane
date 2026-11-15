@@ -248,6 +248,16 @@ With `bomb.trigger: confirmed` (or `blocked`), a confirmed-hostile client that a
 
 **It is off by default and deliberately narrow.** It fires only on a confirmed-hostile tier, only for a client that advertised gzip, and is size-capped and streamed. The collateral risk is real: a CDN, a cache, an accessibility tool, or a **misidentified real browser** that sent `Accept-Encoding: gzip` would also receive it. Enable it only when you accept that trade-off.
 
+## Effectiveness
+
+Henbane is benchmarked, and the numbers are honest — including where it falls short. Two reproducible studies back the claims (`go test ./research/...`).
+
+**Detection** — [`research/classifier-benchmark.md`](research/classifier-benchmark.md). On a labelled corpus the scoring classifier catches **8/8 representative HTTP-library scrapers** wearing a spoofed browser User-Agent (Go net/http, Python requests/httpx, curl, Scrapy, node, Java HttpClient, wget) at **precision 1.00 / recall 1.00 / F1 1.00**, with **zero false positives** on 6 real browsers. An ablation shows the signals are redundant, so detection survives any one being spoofed. The honest ceiling: once real **headless** browsers are counted as things that *should* be caught, recall falls to **0.73** — they send the full browser shape, and no header-layer signal separates them from a human (that needs TLS/HTTP-2 or behavioural fingerprinting, tracked as future work).
+
+**Cost** — [`research/benchmarks.md`](research/benchmarks.md). The full classifier (denylists + honeypot + velocity + both good-bot verifiers + scoring) decides a request in **~3.2 µs** / 5 allocations — ≈310,000 decisions/second/core, so you can enable every layer and never measure it in your latency budget. When it *does* trap a crawler it manufactures poison at **11–162 MB/s per core** (~3,000 maze pages/second), and the optional gzip bomb makes a crawler decompress **~141× the bytes** Henbane put on the wire (74 KB → 10 MB; 7.6 MB → 1 GB) before the CPU it burns parsing the garbage.
+
+The shape of it: a negligible operator cost, an asymmetric crawler cost, and a classifier that is honestly strong against the cheap-scraper majority and honestly blind to evasive headless traffic — which is exactly why the labyrinth and poison, not the classifier, are the real deterrent. For where this sits against Anubis, go-away, Cloudflare, DataDome and the rest, see the [competitive comparison](research/classifier-benchmark.md#2-signal-coverage-matrix).
+
 ## Does this actually work?
 
 Short version: it reliably wastes crawler resources. It does **not**, and cannot be shown to, "poison an AI model." The honest framing matters, so here it is in full.
@@ -258,9 +268,7 @@ Short version: it reliably wastes crawler resources. It does **not**, and cannot
 - **Model impact is unobservable from outside.** No operator can see another party's training set or weights. Every rigorous data-poisoning result in the literature relied on privileged, white-box, or guaranteed-insertion access, a research setup, not "I served some pages and a crawler may have fetched them."
 - **What we will _not_ do:** cite the "250 documents can backdoor an LLM" result or the "model collapse" work as evidence that this degrades frontier models. Neither supports that claim: the first needs a guaranteed-insertion shared trigger, and the second describes recursive multi-generation training.
 
-What is honestly measurable is the resource cost you impose (bytes served, crawl depth, dwell time, bot-versus-real ratio), and as a future, clearly labeled, opt-in feature, whether planted `canary` facts surface in live AI-search engines (which measures live retrieval reach, not poisoned training). Henbane is worth running for the resource-cost story alone.
-
-On the **detection** side, [`research/classifier-benchmark.md`](research/classifier-benchmark.md) benchmarks the classifier on a labelled corpus (it catches representative HTTP-library scrapers wearing a spoofed browser User-Agent with no false positives on real browsers, and documents the headless-browser case it *can't* catch) and compares its signal coverage honestly against Anubis, go-away, Nepenthes, Iocaine, CrowdSec, OWASP CRS, and the commercial ML systems — Henbane competes with the open-source gates, not with Cloudflare/DataDome.
+What is honestly measurable is the resource cost you impose (bytes served, crawl depth, dwell time, bot-versus-real ratio) — see [Effectiveness](#effectiveness) above for the measured figures — and, as a future, clearly labeled, opt-in feature, whether planted `canary` facts surface in live AI-search engines (which measures live retrieval reach, not poisoned training). Henbane is worth running for the resource-cost story alone.
 
 ## Acceptable use and content liability
 
