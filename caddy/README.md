@@ -49,5 +49,6 @@ See the [main README](../README.md) for the configuration reference.
 ## Status
 
 v0 / experimental, tracking the `github.com/datadir-lab/henbane` package. The
-config file is the full feature surface today; decision-log bridging into Caddy's
-logger and a metrics route are future work.
+config file is the full feature surface today, including federation (its
+background tasks start in `Provision` and stop on reload/shutdown). Decision-log
+bridging into Caddy's logger and a metrics route are future work.
