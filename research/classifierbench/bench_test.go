@@ -1,17 +1,16 @@
 // Package classifierbench is a reproducible evaluation of Henbane's scoring
-// classifier against a labelled corpus of representative request shapes. It
-// measures what the classifier actually claims to do — catch clients that wear a
-// browser User-Agent but don't behave like that browser — with precision/recall,
-// a per-signal ablation, and a threshold sweep, and it documents rather than
-// hides the cases it cannot catch (a real headless browser; an honest non-browser
-// client, which the other detection layers handle).
+// classifier against a labelled corpus of representative request shapes, grounded
+// in each client's *verified* default headers (see research/classifier-benchmark.md
+// for the per-client citations). It measures what the classifier claims to do —
+// catch clients that wear a browser User-Agent but don't behave like that browser
+// — AND, deliberately, where it draws false positives (legitimate browsers that
+// predate the Fetch Metadata headers) and where it is fundamentally blind (real
+// headless browsers; careful scrapers that are header-identical to an old browser).
 //
-// Run it with `go test -v ./research/classifierbench` to print every table.
-// Methodology and the competitive comparison are in research/classifier-benchmark.md.
+// Run with `go test -v ./research/classifierbench` to print every table.
 package classifierbench
 
 import (
-	"fmt"
 	"net/netip"
 	"testing"
 
@@ -20,45 +19,46 @@ import (
 	"github.com/datadir-lab/henbane/internal/ports"
 )
 
-// class labels what a profile should ideally be judged as.
+// class labels what a profile is, which determines how a verdict is scored.
 type class int
 
 const (
-	human     class = iota // a real browser — must NOT be escalated (false positive if it is)
-	spoofer                // a scraper library wearing a browser UA — should be caught (>= Suspect)
-	knownMiss              // out of this classifier's scope; documented, not asserted
+	human       class = iota // a modern mainstream browser — must NOT be escalated
+	humanEdge                // a legitimate but pre-Fetch-Metadata browser — the honest FP surface
+	goodBot                  // a verified crawler the scorer flags but the good-bot verifier rescues
+	spoofer                  // a naive scraper library wearing a browser UA — should be caught
+	spooferHard              // a careful scraper, header-identical to an old browser — the ceiling
+	knownMiss                // a real headless browser — out of this signal class entirely
 )
 
 func (c class) String() string {
-	switch c {
-	case human:
-		return "human"
-	case spoofer:
-		return "spoofer"
-	default:
-		return "known-miss"
-	}
+	return [...]string{"human", "human-edge", "good-bot", "spoofer", "spoofer-hard", "known-miss"}[c]
 }
 
-// profile is one corpus entry: a representative request shape. Header sets are
-// the defaults these clients typically send; exact values drift by version, so
-// the corpus is representative, not a version-pinned capture.
+// profile is one corpus entry. Header sets are each client's VERIFIED defaults
+// (project source / docs, cited in the companion doc); br/zstd in Accept-Encoding
+// is treated as env-dependent and only included where a client sends it by default.
 type profile struct {
 	name    string
 	class   class
 	ua      string
 	headers map[string]string
-	proto   int // HTTP major version the client negotiates
+	proto   int // HTTP major version on an HTTPS request
 }
 
 const (
-	chromeUA  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-	firefoxUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"
-	safariUA  = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15"
-	edgeUA    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
+	chromeUA   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+	firefoxUA  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"
+	safariUA   = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15"
+	edgeUA     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
+	safari15UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6 Safari/605.1.15"
+	firefox89  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0"
+	chrome75UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36"
+	// Googlebot smartphone UA carries Chrome+Safari tokens, so the scorer treats it as
+	// a browser-claimer; the crawl fetch sends no Sec-Fetch.
+	googlebotUA = "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 )
 
-// browserHeaders is the shape a real graphical browser sends.
 func browserHeaders() map[string]string {
 	return map[string]string{
 		"Sec-Fetch-Site":  "none",
@@ -68,37 +68,49 @@ func browserHeaders() map[string]string {
 	}
 }
 
+// preFetchMetadata is a real browser's headers MINUS Sec-Fetch — the shape sent
+// by any browser released before Fetch Metadata (Chrome <76, Firefox <90,
+// Safari <16.4). These are legitimate humans.
+func preFetchMetadata() map[string]string {
+	h := browserHeaders()
+	delete(h, "Sec-Fetch-Site")
+	return h
+}
+
 func corpus() []profile {
 	return []profile{
-		// --- real browsers: must pass ---
+		// --- modern mainstream browsers: must pass ---
 		{"chrome-desktop", human, chromeUA, browserHeaders(), 2},
 		{"firefox-desktop", human, firefoxUA, browserHeaders(), 2},
-		{"safari-desktop", human, safariUA, browserHeaders(), 2},
+		{"safari-18", human, safariUA, browserHeaders(), 2},
 		{"edge-desktop", human, edgeUA, browserHeaders(), 2},
 		{"chrome-android", human, "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36", browserHeaders(), 2},
-		// Firefox over HTTP/1.1 (older server / corporate proxy) — must still pass:
-		// everything else is browser-shaped, so the lone legacy-http point stays below threshold.
-		{"firefox-h1", human, firefoxUA, browserHeaders(), 1},
+		{"firefox-h1", human, firefoxUA, browserHeaders(), 1}, // legit HTTP/1.1 (proxy/old server): the lone legacy-http point stays below threshold
 
-		// --- scraper libraries wearing a spoofed Chrome UA: should be caught ---
-		{"go-net-http", spoofer, chromeUA, map[string]string{"Accept-Encoding": "gzip"}, 2},
-		{"python-requests", spoofer, chromeUA, map[string]string{"Accept": "*/*", "Accept-Encoding": "gzip, deflate"}, 1},
-		{"python-httpx", spoofer, chromeUA, map[string]string{"Accept": "*/*", "Accept-Encoding": "gzip, deflate, br"}, 1},
-		{"curl", spoofer, chromeUA, map[string]string{"Accept": "*/*"}, 2},
-		{"scrapy", spoofer, chromeUA, map[string]string{"Accept": "text/html,application/xhtml+xml", "Accept-Language": "en", "Accept-Encoding": "gzip, deflate"}, 1},
-		{"node-http", spoofer, chromeUA, map[string]string{"Accept": "*/*", "Accept-Encoding": "gzip, deflate, br"}, 1},
-		{"java-httpclient", spoofer, chromeUA, map[string]string{"Accept-Encoding": "gzip"}, 2},
-		{"wget", spoofer, chromeUA, map[string]string{"Accept": "*/*", "Accept-Encoding": "identity"}, 1},
+		// --- legitimate but pre-Fetch-Metadata browsers: the honest FALSE-POSITIVE surface ---
+		{"safari-15.6", humanEdge, safari15UA, preFetchMetadata(), 2}, // Safari <16.4 (2023) — OS-pinned, large real population
+		{"firefox-89", humanEdge, firefox89, preFetchMetadata(), 2},   // Firefox <90 (2021)
+		{"chrome-75", humanEdge, chrome75UA, preFetchMetadata(), 2},   // Chrome <76 (2019)
 
-		// --- out of scope: documented, not asserted ---
-		// A real headless browser sends the full browser shape — this scorer can't
-		// tell it apart; a TLS/HTTP-2 or behavioural signal is needed.
+		// --- a verified crawler the scorer flags but the full stack rescues ---
+		{"googlebot", goodBot, googlebotUA, map[string]string{"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Encoding": "gzip, deflate, br"}, 2},
+
+		// --- naive scraper libraries wearing a spoofed Chrome UA: should be caught (verified defaults) ---
+		{"go-net-http", spoofer, chromeUA, map[string]string{"Accept-Encoding": "gzip"}, 2},                                                                                                           // no Accept/lang/Sec-Fetch
+		{"python-requests", spoofer, chromeUA, map[string]string{"Accept": "*/*", "Accept-Encoding": "gzip, deflate"}, 1},                                                                             // urllib3
+		{"python-httpx", spoofer, chromeUA, map[string]string{"Accept": "*/*", "Accept-Encoding": "gzip, deflate"}, 1},                                                                                // h1 default
+		{"curl", spoofer, chromeUA, map[string]string{"Accept": "*/*"}, 2},                                                                                                                            // no Accept-Encoding unless --compressed
+		{"wget", spoofer, chromeUA, map[string]string{"Accept": "*/*", "Accept-Encoding": "identity"}, 1},                                                                                             // identity = non-browser tell
+		{"node-axios", spoofer, chromeUA, map[string]string{"Accept": "application/json, text/plain, */*", "Accept-Encoding": "gzip, compress, deflate, br"}, 1},                                      // 'compress' token is non-browser
+		{"java-httpclient", spoofer, chromeUA, map[string]string{}, 2},                                                                                                                                // no Accept, no Accept-Encoding; h2
+		{"scrapy", spoofer, chromeUA, map[string]string{"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en", "Accept-Encoding": "gzip, deflate"}, 1}, // only Sec-Fetch missing
+
+		// --- a careful scraper: sets every browser header EXCEPT Sec-Fetch; header-identical to safari-15.6 ---
+		{"stealth-scraper", spooferHard, chromeUA, preFetchMetadata(), 2},
+
+		// --- real headless browsers: send the full browser shape; out of this signal class ---
 		{"headless-chrome", knownMiss, chromeUA, browserHeaders(), 2},
 		{"headless-playwright", knownMiss, firefoxUA, browserHeaders(), 2},
-		// An honest non-browser client doesn't claim to be a browser, so the
-		// consistency scorer correctly ignores it; denylists/velocity/good-bot
-		// verification are the layers for these.
-		{"honest-curl", knownMiss, "curl/8.5.0", map[string]string{"Accept": "*/*"}, 2},
 	}
 }
 
@@ -112,8 +124,8 @@ func (r req) Path() string           { return "/article/42" }
 func (r req) Header(n string) string { return r.p.headers[n] }
 func (r req) HTTPMajorVersion() int  { return r.p.proto }
 
-// decide runs the scoring engine with the given weights and thresholds and
-// reports the verdict tier per profile.
+// decide runs the scoring engine with the given weights/thresholds and returns
+// the verdict tier per profile.
 func decide(t *testing.T, w consistency.Weights, suspectAt, confirmAt int) map[string]ports.Tier {
 	t.Helper()
 	engine := core.NewEngine().WithScoring(suspectAt, confirmAt, consistency.New(w))
@@ -125,7 +137,7 @@ func decide(t *testing.T, w consistency.Weights, suspectAt, confirmAt int) map[s
 	return out
 }
 
-// metrics is a confusion summary for a run. Positive = "caught" (tier >= Suspect).
+// metrics is a confusion summary. Positive = "caught" (tier >= Suspect).
 type metrics struct{ tp, fp, fn, tn int }
 
 func (m metrics) precision() float64 {
@@ -148,24 +160,27 @@ func (m metrics) f1() float64 {
 	return 2 * p * r / (p + r)
 }
 
-// score computes a confusion matrix. positives is the set of classes treated as
-// "should be caught"; humans are always the negatives.
-func score(tiers map[string]ports.Tier, positives ...class) metrics {
-	posSet := map[class]bool{}
+// score builds a confusion matrix. positives = classes that SHOULD be caught;
+// negatives = classes that should NOT be. Unlisted classes are ignored.
+func score(tiers map[string]ports.Tier, positives, negatives []class) metrics {
+	pos, neg := map[class]bool{}, map[class]bool{}
 	for _, c := range positives {
-		posSet[c] = true
+		pos[c] = true
+	}
+	for _, c := range negatives {
+		neg[c] = true
 	}
 	var m metrics
 	for _, p := range corpus() {
 		caught := tiers[p.name] >= ports.TierSuspect
 		switch {
-		case p.class == human && caught:
+		case neg[p.class] && caught:
 			m.fp++
-		case p.class == human:
+		case neg[p.class]:
 			m.tn++
-		case posSet[p.class] && caught:
+		case pos[p.class] && caught:
 			m.tp++
-		case posSet[p.class]:
+		case pos[p.class]:
 			m.fn++
 		}
 	}
@@ -174,63 +189,46 @@ func score(tiers map[string]ports.Tier, positives ...class) metrics {
 
 func TestClassifierBenchmark(t *testing.T) {
 	const suspectAt, confirmAt = 2, 4
-	w := consistency.DefaultWeights()
-	tiers := decide(t, w, suspectAt, confirmAt)
+	tiers := decide(t, consistency.DefaultWeights(), suspectAt, confirmAt)
 
-	// --- per-profile table + invariants ---
-	t.Logf("%-20s %-11s %s", "profile", "class", "verdict")
-	t.Logf("%s", "-------------------------------------------------")
+	// --- per-profile table + invariants (only the unambiguous classes are asserted) ---
+	t.Logf("%-20s %-12s %s", "profile", "class", "verdict")
+	t.Logf("%s", "--------------------------------------------------")
 	for _, p := range corpus() {
-		t.Logf("%-20s %-11s %s", p.name, p.class, tiers[p.name])
+		t.Logf("%-20s %-12s %s", p.name, p.class, tiers[p.name])
 		switch p.class {
 		case human:
 			if tiers[p.name] != ports.TierPass {
-				t.Errorf("FALSE POSITIVE: real browser %q escalated to %v", p.name, tiers[p.name])
+				t.Errorf("FALSE POSITIVE on a modern browser %q: %v", p.name, tiers[p.name])
 			}
 		case spoofer:
 			if tiers[p.name] < ports.TierSuspect {
-				t.Errorf("MISS: naive spoofer %q not caught (tier %v)", p.name, tiers[p.name])
+				t.Errorf("MISS: naive spoofer %q not caught (%v)", p.name, tiers[p.name])
 			}
 		}
 	}
 
-	// --- metrics: the scorer's claimed scope vs. the realistic ceiling ---
-	naive := score(tiers, spoofer)
-	realistic := score(tiers, spoofer, knownMiss) // counts headless as a positive it misses
+	// --- headline metrics, by adversary difficulty ---
+	naive := score(tiers, []class{spoofer}, []class{human})
+	hard := score(tiers, []class{spoofer, spooferHard}, []class{human})
+	ceiling := score(tiers, []class{spoofer, spooferHard, knownMiss}, []class{human})
 	t.Logf("")
-	t.Logf("metrics (positive = caught at tier >= Suspect):")
-	t.Logf("  naive scrapers vs browsers:   precision %.2f  recall %.2f  F1 %.2f  (tp=%d fp=%d fn=%d tn=%d)",
-		naive.precision(), naive.recall(), naive.f1(), naive.tp, naive.fp, naive.fn, naive.tn)
-	t.Logf("  + headless as positives:      precision %.2f  recall %.2f  F1 %.2f  (recall falls — the honest ceiling)",
-		realistic.precision(), realistic.recall(), realistic.f1())
+	t.Logf("detection by adversary difficulty (negatives = modern browsers only):")
+	t.Logf("  naive scrapers:            precision %.2f recall %.2f F1 %.2f", naive.precision(), naive.recall(), naive.f1())
+	t.Logf("  + careful (header-perfect): precision %.2f recall %.2f F1 %.2f", hard.precision(), hard.recall(), hard.f1())
+	t.Logf("  + headless browsers:        precision %.2f recall %.2f F1 %.2f  (the honest ceiling)", ceiling.precision(), ceiling.recall(), ceiling.f1())
 
-	// --- ablation: zero each weight, measure spoofers still caught ---
+	// --- the false-positive surface, measured ---
+	fpEdge := score(tiers, nil, []class{humanEdge})
 	t.Logf("")
-	t.Logf("ablation (spoofers caught of %d with one signal disabled):", naive.tp+naive.fn)
-	base := consistency.DefaultWeights()
-	for _, a := range []struct {
-		name string
-		mod  func(*consistency.Weights)
-	}{
-		{"— (all signals)", func(*consistency.Weights) {}},
-		{"no fetch-metadata", func(w *consistency.Weights) { w.NoFetchMetadata = 0 }},
-		{"no accept", func(w *consistency.Weights) { w.NoAccept = 0 }},
-		{"no accept-language", func(w *consistency.Weights) { w.NoAcceptLang = 0 }},
-		{"no modern-encoding", func(w *consistency.Weights) { w.NoModernEncoding = 0 }},
-		{"no legacy-http", func(w *consistency.Weights) { w.LegacyHTTP = 0 }},
-	} {
-		ww := base
-		a.mod(&ww)
-		m := score(decide(t, ww, suspectAt, confirmAt), spoofer)
-		t.Logf("  %-22s caught %d/%d   (FP %d)", a.name, m.tp, m.tp+m.fn, m.fp)
-	}
+	t.Logf("FALSE POSITIVES on legitimate pre-Fetch-Metadata browsers: %d/%d", fpEdge.fp, fpEdge.fp+fpEdge.tn)
+	t.Logf("  (Safari<16.4, Firefox<90, Chrome<76 lack Sec-Fetch-Site and are flagged → challenged, not blocked.)")
 
-	// --- threshold sweep: the detection / false-positive tradeoff ---
+	// --- the fundamental indistinguishability ---
 	t.Logf("")
-	t.Logf("threshold sweep (confirm = suspect+2):")
-	t.Logf("  %-10s %-18s %s", "suspect@", "spoofers caught", "false positives")
-	for s := 1; s <= 5; s++ {
-		m := score(decide(t, base, s, s+2), spoofer)
-		t.Logf("  %-10d %-18s %d/%d", s, fmt.Sprintf("%d/%d", m.tp, m.tp+m.fn), m.fp, m.fp+m.tn)
-	}
+	t.Logf("header-layer indistinguishability: safari-15.6 -> %s, stealth-scraper -> %s",
+		tiers["safari-15.6"], tiers["stealth-scraper"])
+	t.Logf("  A careful scraper that omits only Sec-Fetch is IDENTICAL to an old real browser at")
+	t.Logf("  this layer; no header signal can separate them. In the full stack the good-bot")
+	t.Logf("  verifier rescues real crawlers (googlebot -> %s here, allowed once FCrDNS-verified).", tiers["googlebot"])
 }
