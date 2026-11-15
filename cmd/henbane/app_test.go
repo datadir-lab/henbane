@@ -165,6 +165,38 @@ func TestPoisonBabbleServedToFlaggedClient(t *testing.T) {
 	}
 }
 
+func TestPoisonSpliceServedToFlaggedClient(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "upstream body")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{
+		Upstream: upstream.URL,
+		Honeypot: config.Honeypot{Enabled: true, Path: "/trap", MaxFlagged: 100},
+		Poison:   config.Poison{Strategy: "splice", ParagraphsPerPage: 2},
+	}
+	h, err := newHandler(cfg, logger, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	if r, _ := http.Get(front.URL + "/trap/x"); r != nil { // trip the trap
+		r.Body.Close()
+	}
+	resp, err := http.Get(front.URL + "/page") // flagged client → maze with poison
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "<p>") {
+		t.Errorf("flagged client: status=%d, want 200 maze with <p> poison; body=%q", resp.StatusCode, string(body))
+	}
+}
+
 func TestPoisonNoneIsLinksOnly(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "upstream body")
