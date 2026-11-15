@@ -65,15 +65,30 @@ func (s *Scorer) Score(r ports.RequestView) []ports.ScoreResult {
 	if r.Header("Accept-Language") == "" {
 		add("browser_mismatch:no_accept_language", s.w.NoAcceptLang)
 	}
-	if ae := r.Header("Accept-Encoding"); !strings.Contains(ae, "gzip") && !strings.Contains(ae, "br") {
+	// Content-codings are case-insensitive (RFC 7231), so compare in lower case —
+	// otherwise a client advertising "GZIP" would be wrongly flagged.
+	if ae := strings.ToLower(r.Header("Accept-Encoding")); !strings.Contains(ae, "gzip") && !strings.Contains(ae, "br") {
 		add("browser_mismatch:no_modern_encoding", s.w.NoModernEncoding)
 	}
-	// Protocol is only meaningful when Henbane terminates the client connection;
-	// behind a proxy the RequestView won't expose it (or reports the proxy hop).
-	if pv, ok := r.(ports.ProtocolViewer); ok && pv.HTTPMajorVersion() == 1 {
-		add("browser_mismatch:legacy_http", s.w.LegacyHTTP)
+	// The client's HTTP version is only trustworthy when Henbane terminated the
+	// client's TLS itself. Behind a proxy or CDN, ProtocolViewer reports the
+	// proxy→Henbane hop (and most CDNs re-originate as HTTP/1.1), which would
+	// flag every real browser; so the signal is applied only when a TLS
+	// fingerprint proves Henbane is the direct TLS terminator.
+	if terminatedTLS(r) {
+		if pv, ok := r.(ports.ProtocolViewer); ok && pv.HTTPMajorVersion() == 1 {
+			add("browser_mismatch:legacy_http", s.w.LegacyHTTP)
+		}
 	}
 	return out
+}
+
+// terminatedTLS reports whether Henbane terminated the client's TLS connection
+// itself (a non-empty TLS fingerprint is only captured on direct termination), so
+// the request's HTTP version reflects the client rather than an upstream proxy.
+func terminatedTLS(r ports.RequestView) bool {
+	f, ok := r.(ports.TLSFingerprinter)
+	return ok && f.TLSFingerprint() != ""
 }
 
 // claimsBrowser reports whether ua looks like a mainstream graphical browser: a
