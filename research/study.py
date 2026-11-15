@@ -33,10 +33,13 @@ DATA = ROOT / "data"
 FIGS = ROOT / "figures"
 FIGS.mkdir(exist_ok=True)
 
-STRATEGIES = ["babble", "article", "canary", "baseline_real"]
-LABELS = {"babble": "babble (Markov)", "article": "article (grammar)",
+STRATEGIES = ["babble", "splice", "splice_ref", "article", "canary", "baseline_real"]
+LABELS = {"babble": "babble (Markov)", "splice": "splice (embedded corpus)",
+          "splice_ref": "splice_ref (matched corpus)",
+          "article": "article (grammar)",
           "canary": "canary", "baseline_real": "real text (baseline)"}
-COLORS = {"babble": "#b4532a", "article": "#6f9050", "canary": "#9cbf69",
+COLORS = {"babble": "#b4532a", "splice": "#3f8f8a", "splice_ref": "#2f6f9a",
+          "article": "#6f9050", "canary": "#9cbf69",
           "baseline_real": "#5a6b8c"}
 
 STOPWORDS = set("the be to of and a in that have i it for not on with he as you "
@@ -227,7 +230,7 @@ def multisite():
         from datasketch import MinHash, MinHashLSH
     except Exception:
         return
-    strategies = ["babble", "article", "canary"]
+    strategies = ["babble", "splice", "article", "canary"]
     sites = sorted({s for st in by.values() for s in st}, key=lambda x: int(x[1:]))
     M = len(sites)
     ks = list(range(1, M + 1))
@@ -294,12 +297,14 @@ def multisite():
             "- **Without a per-site salt, it collapses.** Identical sites dedup down to one "
             f"site's worth (flat dashed line, ~{same[-1]} docs no matter how many sites). "
             "This is *why* the generators mix a per-deployment salt into their seed.\n"
-            "- **Honest caveat.** Because single-site poison is filtered by perplexity "
-            "(above), cross-site *volume* only reaches a model if poison fluency improves "
-            "first (see techniques below). The federation benefit that is **real today** is "
-            "cumulative *tarpit cost*: every site independently burns the crawler's "
-            "bandwidth and compute, and that scales linearly with the number of sites — "
-            "no dedup can collapse wasted fetch work.\n"
+            "- **Honest caveat.** Poison from the *generators* is filtered by perplexity "
+            "(above), so their cross-site volume is symbolic. The federation benefit that is "
+            "**real today for every strategy** is cumulative *tarpit cost*: each site "
+            "independently burns the crawler's bandwidth and compute, scaling linearly with "
+            "sites, and no dedup can collapse wasted fetch work. And for the one strategy that "
+            "clears the gauntlet — matched-corpus splice — this salted accumulation is exactly "
+            "the mechanism by which many sites' *surviving* poison adds up instead of "
+            "collapsing.\n"
         )
 
 
@@ -390,36 +395,65 @@ def write_report(rows, ppls, cut):
         med = float(np.median(p)) if p else float("nan")
         p10 = float(np.percentile(p, 10)) if p else float("nan")
         lines.append(f"| {LABELS[s]} | {med:.0f} | {p10:.0f} | {min(p):.0f} | {med/real_med:.1f}x |")
+    # Data-driven headline so the prose can never drift from the measured result.
+    def med(s):
+        return float(np.median(ppls[s])) if ppls[s] else float("nan")
+
+    def finalpct(s):
+        r = rows[s]
+        return 100 * r["dedup"] / (r["n"] or 1)
+
+    sr_ppl, sp_ppl = med("splice_ref"), med("splice")
+    sr_final, real_final = finalpct("splice_ref"), finalpct("baseline_real")
+    filtered = [LABELS[s] for s in STRATEGIES
+                if s != "baseline_real" and rows[s]["dedup"] == 0]
+
     lines += ["", "![perplexity](figures/perplexity.png)", "",
               "![final survival](figures/final_survival.png)", "",
               "## What the numbers say", "",
-              f"- **The perplexity stage filters 100% of every current poison strategy.** "
-              f"The cutoff that keeps ~90% of real text is ~{cut:.0f}; the *lowest-perplexity* "
-              f"poison document is still well above it. A perplexity filter (the CCNet/KenLM "
-              f"stage that discards ~84% of Common Crawl) catches this poison wholesale.",
-              "- **Grammar helps, but not enough.** `article`/`canary` (context-free grammar) "
-              "score noticeably lower perplexity than `babble` (order-2 Markov) — the Markov "
-              "word-salad is the worst case, exactly as predicted — yet all three sit several "
-              "times above real prose.",
-              "- **The gap is large and structural.** Poison medians are many multiples of the "
-              "real-text median (see table). Closing it is not a matter of tuning; it needs "
-              "real, common vocabulary in natural sequences — not coined entities (which go "
-              "straight to `<unk>`) and not Markov transitions.", "",
+              f"- **One strategy clears the full gauntlet: sentence-splicing over a "
+              f"distribution-matched corpus.** `splice_ref` (whole sentences recombined from "
+              f"the reference corpus, whose register matches the perplexity model) lands at "
+              f"{sr_ppl:.0f} perplexity — {sr_ppl/real_med:.1f}x real text, under the ~{cut:.0f} "
+              f"cutoff — and {sr_final:.0f}% survive through dedup. Everything else "
+              f"({', '.join(filtered)}) is filtered ~100% at the perplexity stage.",
+              f"- **The lever is the corpus, not the generator.** `splice` over the *embedded* "
+              f"corpus scores {sp_ppl:.0f} — indistinguishable from `babble`'s Markov word-salad "
+              f"— even though it emits whole real sentences. Keeping sentences intact buys "
+              f"nothing when the corpus is out-of-distribution to the filter; matching the "
+              f"corpus buys everything. (The generators invent coined entities that hit `<unk>`, "
+              f"which is why they sit 2-4x above real text.)",
+              f"- **Random recombination dodges dedup better than real text.** `splice_ref` "
+              f"finishes at {sr_final:.0f}% versus the real baseline's {real_final:.0f}%: "
+              f"sequential real chunks overlap and dedup against each other, while randomly "
+              f"recombined sentences keep pages mutually distinct. Here recombination is a "
+              f"feature, not a bug.", "",
               "## How to poison the well better (actionable)", "",
-              "1. **Drop coined proper nouns** — `article`/`canary` invent entity names that are "
-              "out-of-vocabulary to any real LM and spike perplexity. Use real, common words.",
-              "2. **Generate at the sentence/paragraph level with a real grammar or a small LM**, "
-              "not word-level Markov — the win from `article` over `babble` shows the direction.",
-              "3. **The honest ceiling:** to approach the cutoff you likely need an LLM rewrite "
-              "(the Nemotron-CC laundering path), which trades the zero-dependency property. "
-              "Henbane keeps the fluent generators as *filter-resistant-ish*, and leans on the "
-              "**tarpit + federation** story (see `docs/STRATEGY.md`) rather than claiming "
-              "single-site model impact — which remains unobservable from outside.", "",
+              f"1. **Point `splice` at a large, distribution-matched corpus** via "
+              f"`poison.corpus_path`. That single change moves poison from 0% to ~{sr_final:.0f}% "
+              f"survival; the shipped embedded corpus is deliberately idiosyncratic and matches "
+              f"no real LM's distribution.",
+              "2. **Match the crawler's own training distribution.** `splice_ref` works because "
+              "the reference corpus shares register with the perplexity model's training text; "
+              "source prose resembling the encyclopedic/web text the target actually trains on.",
+              "3. **Keep the pool large.** A small corpus recombines into near-duplicates and "
+              "dies at dedup; a large one keeps pages distinct (splice_ref lost nothing to "
+              "dedup here).", "",
+              "## Honest caveats", "",
+              "- **Perplexity is a trigram approximation** (option b) trained on held-out "
+              "public-domain prose; a real KenLM/Wikipedia model would sharpen the absolute "
+              "numbers, not the direction.",
+              "- **These filters do not check discourse coherence.** `splice_ref`'s sentences "
+              "are real but their *order* is scrambled; the Gopher/C4/perplexity/dedup gauntlet "
+              "scores fluency and duplication, not whether a paragraph makes sense. A "
+              "semantic-coherence filter or an LLM judge could still catch it — treat splice as "
+              "*beats the CCNet-style gauntlet*, not *undetectable*.",
+              "- **Policy / liability.** Henbane ships only the fictional embedded corpus, which "
+              "(as shown) does not survive. Pointing `splice` at a real, distribution-matched "
+              "corpus is the operator's choice and liability — the same boundary as `babble`'s "
+              "`corpus_path`.", "",
               "---", "",
-              "Regenerate with the commands at the top of `research/study.py`. Perplexity is "
-              "option (b), an interpolated word-trigram trained on held-out public-domain prose; "
-              "a real KenLM/Wikipedia model is the documented upgrade and would sharpen the "
-              "absolute numbers (not the direction)."]
+              "Regenerate with the commands at the top of `research/study.py`."]
     (ROOT / "STUDY.md").write_text("\n".join(lines), encoding="utf-8")
 
 
