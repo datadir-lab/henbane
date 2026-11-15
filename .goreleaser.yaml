@@ -126,5 +126,33 @@ changelog:
 
 release:
   prerelease: auto
+  header: |
+    Henbane is an open-source, self-hostable, AGPL anti-AI-scraper gateway: it
+    classifies bot traffic, then challenges it (proof-of-work), tarpits it (an
+    endless labyrinth), or poisons it (corpus-grade garbage) — while verifying and
+    sparing the good bots you want indexing you.
+
+    ### Highlights
+    - **Classifier** — weighted signal fusion (browser-consistency scoring) plus
+      velocity, browser-hint, and a coarse TLS fingerprint. Honestly benchmarked:
+      see `research/classifier-benchmark.md` for what it catches and what it can't.
+    - **Verified good bots, three ways** — forward-confirmed reverse DNS
+      (Googlebot/Bingbot), Web Bot Auth (RFC 9421 signed agents), and published IP
+      ranges (GPTBot/ChatGPT/ClaudeBot/PerplexityBot).
+    - **Four form factors** — standalone reverse proxy, embeddable `net/http`
+      middleware, Caddy v2 module, and an nginx/Traefik ForwardAuth sidecar.
+    - **Deterrents** — PoW challenge (Web Worker, no-JS fallback), labyrinth, four
+      poison strategies, and an optional decompression bomb.
+    - **Operations** — Prometheus metrics on a private listener, fail2ban output,
+      and feed-based federation.
+
+    ### Install
+    - Container: `docker pull ghcr.io/datadir-lab/henbane:0.2.0`
+    - Binary: download below (checksums are cosign-signed; see "Verifying releases")
+    - Library: `go get github.com/datadir-lab/henbane`
+    - Caddy: `xcaddy build --with github.com/datadir-lab/henbane/caddy`
+
+    > **v0 / experimental** — the middleware API may change before 1.0. Zero
+    > third-party runtime dependencies (Go stdlib + `gopkg.in/yaml.v3`).
   footer: |
     Verify this release: see "Verifying releases" in the README.
