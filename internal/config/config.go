@@ -72,6 +72,17 @@ type Federation struct {
 	DeploymentID string `yaml:"deployment_id"` // stable ID so the feed can require cross-reporter consensus
 }
 
+// WebBotAuth configures verification of Web Bot Auth signed agents (RFC 9421 /
+// draft-meunier-web-bot-auth). When enabled, a request carrying a valid Ed25519
+// signature from a key in one of the configured agent Directories is classified
+// at Tier — letting an operator act on a cryptographically *proven* agent
+// identity (e.g. OpenAI's ChatGPT agent) rather than a spoofable User-Agent.
+type WebBotAuth struct {
+	Enabled     bool     `yaml:"enabled"`
+	Tier        string   `yaml:"tier"`        // suspect|confirmed|block; "" => block
+	Directories []string `yaml:"directories"` // agent key-directory origins (https)
+}
+
 // TLS configures TLS termination. When both Cert and Key are set, Henbane
 // terminates TLS itself — which enables TLS client fingerprinting. Empty means
 // plain HTTP, expecting a TLS-terminating proxy or CDN in front (in which case
@@ -114,6 +125,7 @@ type Config struct {
 	Metrics        Metrics    `yaml:"metrics"`
 	Federation     Federation `yaml:"federation"`
 	TLS            TLS        `yaml:"tls"`
+	WebBotAuth     WebBotAuth `yaml:"webbotauth"`
 }
 
 // FederationRefresh parses Federation.Refresh, defaulting to 1h; must be positive.
@@ -377,6 +389,24 @@ func Validate(cfg Config) error {
 	if cfg.Federation.ReportURL != "" &&
 		!strings.HasPrefix(cfg.Federation.ReportURL, "http://") && !strings.HasPrefix(cfg.Federation.ReportURL, "https://") {
 		return fmt.Errorf("federation.report_url must be an http(s) URL, got %q", cfg.Federation.ReportURL)
+	}
+	if cfg.WebBotAuth.Enabled {
+		tier := cfg.WebBotAuth.Tier
+		switch tier {
+		case "", "suspect", "confirmed", "block":
+		default:
+			return fmt.Errorf("webbotauth.tier %q is not one of suspect|confirmed|block", tier)
+		}
+		// A suspect verdict maps to a proof-of-work challenge; without a gate it
+		// fails closed (500), so require one — as with velocity.
+		if tier == "suspect" && cfg.PoW.Mode != "suspect" && cfg.PoW.Mode != "all" {
+			return fmt.Errorf("webbotauth.tier: suspect requires pow.mode suspect or all; enable pow or use a different tier")
+		}
+		for _, d := range cfg.WebBotAuth.Directories {
+			if !strings.HasPrefix(d, "https://") {
+				return fmt.Errorf("webbotauth.directories entry %q must be an https URL", d)
+			}
+		}
 	}
 	return nil
 }
