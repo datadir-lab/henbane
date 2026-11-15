@@ -39,6 +39,8 @@ The split is deliberate. A denylisted actor is banished (403 and fail2ban). A ho
 
 A proof-of-work tier challenges suspicious clients — or everyone, with `pow.mode: all`. The browser solves a small puzzle once, is remembered by an anonymous session cookie, and passes through; a crawler reading a million pages pays it a million times. It is off by default.
 
+A request-velocity signal classifies any client IP that exceeds `velocity.requests` within `velocity.window`. The counter is keyed on the resolved client IP and hard-bounded in memory. Because it is a weaker signal than a trap hit — shared NAT, CDNs, and asset-heavy pages all inflate a single IP's rate — the response is the operator's choice: `tier: suspect` makes a fast client pay the proof-of-work toll (recoverable for a real browser), while `tier: confirmed` trips it straight into the tarpit. Note the counter sees *every* request including subresources, so tune `requests` above a heavy human session or keep static assets off the proxied path. Off by default.
+
 ## Quick start
 
 ```bash
@@ -122,6 +124,13 @@ robots:
   serve: false                   # if true, Henbane serves /robots.txt
   disallow:                      # extra paths to Disallow (the honeypot trap is auto-added)
     - "/private"
+
+velocity:
+  enabled: false                 # rate-based detector; off by default
+  requests: 600                  # max requests per window per IP before firing
+  window: "1m"                   # the fixed counting window
+  tier: "suspect"                # suspect (PoW toll, needs pow) | confirmed (tarpit)
+  max_tracked: 100000            # hard cap on tracked IPs (memory bound)
 
 sinks:
   fail2ban:

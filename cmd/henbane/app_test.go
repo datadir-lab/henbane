@@ -397,3 +397,94 @@ func TestRobotsTxtNotServedWhenDisabled(t *testing.T) {
 		t.Errorf("robots disabled: body = %q, want upstream (proxied)", string(body))
 	}
 }
+
+func TestVelocityConfirmedTarpitsFastClient(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "REAL-CONTENT")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{
+		Upstream: upstream.URL,
+		Velocity: config.Velocity{Enabled: true, Requests: 2, Window: "1m", Tier: "confirmed", MaxTracked: 100},
+	}
+	h, err := newHandler(cfg, logger, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+	client := front.Client()
+
+	// The first `requests` hits (same client IP) pass through to the upstream.
+	for i := 1; i <= 2; i++ {
+		resp, err := client.Get(front.URL + "/page")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if string(body) != "REAL-CONTENT" {
+			t.Fatalf("request %d: body = %q, want REAL-CONTENT (under limit)", i, string(body))
+		}
+	}
+	// The next request exceeds the limit → tarpit (maze), not the upstream.
+	resp, err := client.Get(front.URL + "/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("over-limit status = %d, want 200 (maze)", resp.StatusCode)
+	}
+	if strings.Contains(string(body), "REAL-CONTENT") {
+		t.Errorf("over-limit request still reached the upstream: %q", string(body))
+	}
+}
+
+func TestVelocitySuspectChallengesFastClientWithoutFailingClosed(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "REAL-CONTENT")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{
+		Upstream: upstream.URL,
+		PoW:      config.PoW{Mode: "suspect"},
+		Velocity: config.Velocity{Enabled: true, Requests: 1, Window: "1m", Tier: "suspect", MaxTracked: 100},
+	}
+	h, err := newHandler(cfg, logger, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+	// Don't follow redirects or auto-anything; just observe the raw response.
+	client := front.Client()
+
+	// First request is under the limit → upstream.
+	r1, err := client.Get(front.URL + "/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b1, _ := io.ReadAll(r1.Body)
+	r1.Body.Close()
+	if string(b1) != "REAL-CONTENT" {
+		t.Fatalf("first request body = %q, want REAL-CONTENT", string(b1))
+	}
+	// Second request exceeds the limit → Suspect → PoW challenge. It must be
+	// intercepted (not the upstream) and must NOT fail closed (500).
+	r2, err := client.Get(front.URL + "/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, _ := io.ReadAll(r2.Body)
+	r2.Body.Close()
+	if r2.StatusCode == http.StatusInternalServerError {
+		t.Fatal("suspect verdict with pow enabled must not fail closed (500)")
+	}
+	if strings.Contains(string(b2), "REAL-CONTENT") {
+		t.Errorf("over-limit request still reached the upstream: %q", string(b2))
+	}
+}
