@@ -1,218 +1,323 @@
-# Classifier benchmark & competitive comparison
+# Classifier study: benchmark, false-positive analysis, and competitive comparison
 
-*How Henbane's classifier is built, how it performs on a labelled corpus, and
-where it honestly sits against the rest of the field.*
+*How Henbane's classifier is built, how it performs on a verified labelled corpus,
+where it draws false positives, and where it honestly sits against the field.*
 
-## TL;DR
+This is a **critical** study: it is written to find the classifier's weaknesses,
+not to flatter it. The headline is not a single number — it is a tradeoff.
 
-- Henbane's classifier is a **weighted scoring engine** (hard rules + verifier
-  short-circuit + soft-signal fusion) — the same architectural class as Anubis's
-  `WEIGH` engine and OWASP CRS's anomaly score, and richer than fail2ban.
-- On a labelled corpus it catches **6/6 representative HTTP-library scrapers**
-  wearing a spoofed browser User-Agent with **0 false positives** on 5 real
-  browsers — and it **documents the two things it cannot catch** (a real headless
-  browser; an honest non-browser client).
-- The honest frame: **Henbane competes with Anubis / go-away / OWASP CRS, not with
-  Cloudflare / DataDome.** It is *ahead* of Anubis on good-bot verification (full
-  reverse-DNS + Web Bot Auth + IP-range triad; Anubis still has Web Bot Auth only
-  as an open issue) and on the deception layer (labyrinth + poison), and *behind*
-  the commercial ML systems on raw fingerprint depth (no device/behavioural ML, a
-  coarse TLS fingerprint, no HTTP/2 frame fingerprint).
-- Like **every** system — Cloudflare included — it concedes that determined
-  headless browsers behind residential proxies can't be blocked on request
-  metadata alone. Against those, **deception (tarpit + poison) is a more honest,
-  lower-collateral tool than a proof-of-work wall**, and is Henbane's real
-  differentiator.
+## Headline
+
+- Against **naive HTTP-library scrapers** wearing a spoofed browser User-Agent
+  (Go, Python, curl, wget, axios, Java, Scrapy), the classifier is near-perfect:
+  **8/8 caught**, because they each omit *several* things a browser sends.
+- **But the single signal doing most of that work — a missing `Sec-Fetch-Site`
+  header — also flags legitimate browsers released before Fetch Metadata shipped**
+  (Chrome <76 / 2019, Firefox <90 / 2021, Safari <16.4 / 2023). On the corpus,
+  **all 3/3** such browsers are flagged (FPR 0.33).
+- At realistic bot base rates this **collapses precision**: with FPR 0.33, at a
+  **1% bot rate precision is 0.03** — 97% of "catches" would be legitimate old
+  browsers. The balanced-corpus F1 of 1.00 hides this entirely.
+- A **careful scraper that omits only `Sec-Fetch-Site` is header-identical to an
+  old Safari** — no header signal can separate them. This is the ceiling.
+- Three things make the default defensible anyway: the false-positive cost is a
+  one-time **proof-of-work challenge, not a block** (every JS-capable old browser
+  solves it); the **good-bot verifier rescues real crawlers** (Googlebot is
+  flagged by the scorer alone but allowed once FCrDNS-verified); and the flagged
+  population **shrinks over time**. The classifier is one soft signal in a fusion
+  engine, not a standalone wall — which is why the **labyrinth + poison, not the
+  classifier, are Henbane's real differentiator.**
+
+Everything below is reproducible: `go test -v ./research/classifierbench`.
 
 ---
 
-## 1. Benchmark: the scoring classifier on a labelled corpus
+## 1. Methodology
 
-Reproducible: `go test -v ./research/classifierbench`. The harness runs
-representative request shapes through the scoring engine + the browser-consistency
-scorer (the layer that judges "does this client that *claims* to be a browser
-actually behave like one?"). Header sets are the defaults these clients typically
-send; exact values drift by version, so the corpus is representative, not a
-version-pinned capture.
+**Corpus.** 21 representative request shapes. Each client's headers are its
+**verified defaults**, read from project source or official docs (cited in §7),
+not guessed — a correction to the first version of this study, whose header
+assumptions were partly wrong (e.g. axios sends `gzip, compress, deflate, br`,
+not zstd; Java HttpClient defaults to HTTP/2 and sends no `Accept-Encoding`;
+wget/urllib3 send `Accept-Encoding: identity`). `br`/`zstd` are treated as
+environment-dependent and only included where a client sends them by default.
 
-The corpus: **6 real browsers** (incl. a legit HTTP/1.1 Firefox), **8 scraper
-libraries** wearing a spoofed Chrome UA (Go net/http, Python requests/httpx, curl,
-Scrapy, node, Java HttpClient, wget), and **3 out-of-scope** cases (two headless
-real browsers, one honest curl).
+**Classes.**
 
-**Metrics** (positive = caught at tier ≥ Suspect):
-
-| framing | precision | recall | F1 |
-|---|---|---|---|
-| naive scrapers vs. real browsers | **1.00** | **1.00** | **1.00** |
-| + headless browsers counted as positives | 1.00 | **0.73** | 0.84 |
-
-Every naive scraper is caught (5 → tarpit, Scrapy → challenge) with **zero false
-positives** on 6 real browsers. The second row is the honest ceiling: once real
-headless browsers are counted as things that *should* be caught, recall falls to
-0.73 — they send the full browser shape and this layer can't tell them apart.
-
-**Per-signal ablation** (spoofers caught of 8 with one weight disabled): removing
-any single signal *except* fetch-metadata still catches **8/8** — the signals are
-**redundant**, because a naive scraper misses several browser behaviours at once.
-Detection therefore survives any one signal being individually spoofed; removing
-Sec-Fetch alone drops it to 7/8.
-
-**Threshold sweep** (the detection / false-positive tradeoff):
-
-| `suspect_threshold` | spoofers caught | false positives |
+| class | meaning | ideal verdict |
 |---|---|---|
-| 1 | 8/8 | **1/6** (flags the HTTP/1.1 Firefox) |
-| **2 (default)** | **8/8** | **0/6** |
-| 3 | 8/8 | 0/6 |
-| 4 | 7/8 | 0/6 |
-| 5 | 3/8 | 0/6 |
+| `human` | modern mainstream browser | pass |
+| `human-edge` | legitimate browser predating Fetch Metadata | pass (but is flagged — the FP surface) |
+| `good-bot` | verified crawler (Googlebot) | pass (rescued by the verifier, not the scorer) |
+| `spoofer` | naive scraper library wearing a browser UA | caught |
+| `spoofer-hard` | careful scraper, header-identical to an old browser | caught, but indistinguishable from `human-edge` |
+| `known-miss` | real headless browser | out of this signal class |
 
-The default threshold of 2 is the sweet spot — maximal detection at zero false
-positives; lowering it to 1 would flag a legitimate HTTP/1.1 browser, which is
-exactly why 2 is the floor.
+**What is measured.** The `consistency` scorer *in isolation* (not the full
+stack, which adds denylists, velocity, TLS-fp denylist, good-bot verification,
+and federation). This is deliberate: it is the hardest part to self-benchmark, so
+the corpus is built to expose where it fails.
 
-### What this does and does not show
+**Metrics.** Precision / recall / F1 (positive = escalated to ≥ Suspect);
+false-positive rate measured against the *legitimate* population (modern + edge
+browsers); and base-rate-adjusted precision `p = (b·TPR) / (b·TPR + (1−b)·FPR)`
+for bot base rate `b` (Axelsson's base-rate correction, ref [10]).
 
-- **Scope.** It measures the UA-spoofing classifier *in isolation* — not the full
-  stack (which adds denylists, velocity, good-bot verification, TLS-fingerprint
-  denylist, and federation). It is deliberately the hardest-to-game part to
-  self-benchmark, so the corpus includes the cases it **fails**.
-- **`headless-chrome` (miss, by ceiling).** A real headless browser sends the full
-  browser request shape; nothing at the header layer separates it from a human.
-  This is the industry-wide ceiling (see §3). A TLS/HTTP-2 or behavioural signal
-  is required — tracked as future work.
-- **`honest-curl` (miss, by design).** An honest non-browser client doesn't claim
-  to be a browser, so the consistency scorer correctly ignores it. Honest
-  automated clients are the job of the denylist / velocity / good-bot layers, not
-  this scorer.
-- **Self-benchmark caveat.** The same author wrote the corpus and the detector.
-  That is mitigated by using realistic client defaults (not strawmen), including
-  the failing cases, and keeping the harness open so anyone can add profiles — but
-  it is a benchmark of Henbane's behaviour, not an independent audit.
+### The 10 critical iterations
+
+This study was hardened in ten passes, each fixing a specific weakness of the
+previous one:
+
+1. **Verified headers.** Replaced guessed client defaults with source-cited real
+   ones (§7); fixed axios/Java/wget/Scrapy errors.
+2. **Edge-case legitimate clients.** Added the pre-Fetch-Metadata browsers that a
+   `Sec-Fetch-Site` check wrongly flags — the real false-positive surface.
+3. **Hard spoofers.** Added a careful scraper that sets every header but Sec-Fetch.
+4. **Baselines.** Compared against the cheap rules real tools use (empty-UA,
+   UA-token blocklist, no-Accept).
+5. **Base-rate precision.** Reported precision at 1–50% bot priors, not just on a
+   balanced corpus.
+6. **Per-difficulty confusion.** Split detection by adversary difficulty rather
+   than one aggregate F1.
+7. **Weight-tuning tradeoff.** Quantified that lowering the Sec-Fetch weight
+   spares old browsers but drops careful scrapers — no free lunch.
+8. **Honest FPR in the base-rate math** (counting edge browsers as legitimate),
+   which is what makes the precision collapse visible.
+9. **Methodology + references.** This section, plus the verified reference list.
+10. **Threats to validity.** §6 — every remaining limitation, stated.
 
 ---
 
-## 2. Signal-coverage matrix
+## 2. Results
 
-Y = built-in · N = no · opt = optional/off by default · ~ = partial/indirect.
-Commercial effectiveness figures are vendor self-reported and not independently
-audited.
+### 2.1 Detection by adversary difficulty
 
-| System | OSS / self-host | Classifier | TLS fp | HTTP/2 fp | Device/JS fp | Behavioural | Good-bot verify | PoW | Tarpit | Poison | Reputation / federation |
+Negatives = modern browsers only (the edge-browser FP is reported separately in §2.2).
+
+| adversary set | precision | recall | F1 |
+|---|---|---|---|
+| naive scrapers | 1.00 | 1.00 | 1.00 |
+| + careful (header-perfect) scraper | 1.00 | 1.00 | 1.00 |
+| + real headless browsers | 1.00 | **0.82** | 0.90 |
+
+Naive and even a careful single-signal scraper are caught; real headless browsers
+(which send the full browser shape) are not — the header-layer ceiling.
+
+### 2.2 The false-positive surface (the critical finding)
+
+| legitimate browser | released | flagged? |
+|---|---|---|
+| Safari < 16.4 | pre-2023-03 | **yes → challenged** |
+| Firefox < 90 | pre-2021-07 | **yes → challenged** |
+| Chrome < 76 | pre-2019-07 | **yes → challenged** |
+
+**3/3 (FPR 0.33 on the corpus's legitimate population).** These browsers predate
+`Sec-Fetch-Site` and are indistinguishable, at the header layer, from a scraper.
+
+### 2.3 Base-rate precision (the collapse)
+
+With the measured FPR of 0.33 (driven by the edge browsers):
+
+| bot base rate | precision |
+|---|---|
+| 1% | **0.03** |
+| 5% | 0.14 |
+| 10% | 0.25 |
+| 30% | 0.56 |
+| 50% | 0.75 |
+
+This is the base-rate fallacy (ref [10]): when bots are rare, even a moderate FPR
+means most "catches" are legitimate. The honest reading is that the *raw*
+consistency score is **not a block-grade signal** — it is a challenge-grade one,
+which is exactly how Henbane uses it (→ PoW, not → 403).
+
+### 2.4 Baseline comparison
+
+| detector | spoofers caught | false positives |
+|---|---|---|
+| **Henbane scoring** | **8/8** | 3/9 |
+| empty-UA block (fail2ban-style) | 0/8 | 0/9 |
+| UA-token blocklist (Anubis/CRS-style) | **0/8** | 0/9 |
+| no-Accept single rule | 2/8 | 0/9 |
+
+A **UA-token blocklist catches 0/8** of the spoofers — they wear a clean Chrome
+UA, invisible to a UA-regex. That is the empirical reason the scorer exists: it
+catches a population the cheap rules can't, at the cost of the old-browser FPs the
+cheap rules don't have. They are complementary layers.
+
+### 2.5 The weight-tuning tradeoff
+
+| Sec-Fetch weight | naive caught | edge-browser FP | Scrapy | careful h2 scraper |
+|---|---|---|---|---|
+| **2 (default)** | 8/8 | **3/3** | caught | caught |
+| 1 (corroboration) | 8/8 | **0/3** | caught | **missed** |
+
+Lowering the weight so a lone missing Sec-Fetch can't reach Suspect **eliminates
+the old-browser false positives but misses the careful h2 scraper** (Scrapy
+survives only because its HTTP/1.1 corroborates). There is no header-layer setting
+that catches careful scrapers without flagging old browsers, because they are the
+same bytes. Henbane keeps weight 2 because the FP is a challenge, the verifier
+rescues crawlers, and the population shrinks — but the knob is the honest lever
+for an operator who prioritises zero friction over catching careful scrapers.
+
+### 2.6 Header-layer indistinguishability
+
+`safari-15.6 → suspect`, `stealth-scraper → suspect`: identical bytes, identical
+verdict. No header feature separates a careful scraper from an old real browser.
+Separating them requires a *different layer* — TLS/HTTP-2 fingerprinting (refs
+[3][7][9]) or behaviour (ref [8]) — which is why those are the tracked next
+signals, and why deception handles the ones no signal can block.
+
+---
+
+## 3. Signal-coverage matrix
+
+Y = built-in · N = no · opt = optional · ~ = partial. Commercial effectiveness
+figures are vendor self-reported and not independently audited.
+
+| System | OSS/self-host | Classifier | TLS fp | HTTP/2 fp | Device/JS fp | Behavioural | Good-bot verify | PoW | Tarpit | Poison | Reputation |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **Henbane** | **AGPL / yes** | weighted score + rules + verifier | ~ coarse | N (planned, opt-dep) | N | ~ velocity | **Y (rDNS + Web Bot Auth + IP ranges)** | Y | **Y** | **Y** | Y (feed + reporter) |
-| Anubis | MIT / yes | weight score + rules | N | N | N | N | Y (UA + CIDR + rDNS) | Y | N | N | opt DNSBL |
-| go-away | MIT / yes | CEL rules + fp | **Y (JA3N/JA4)** | ~ | ~ | N | Y (IP ranges) | opt | N | N | DNSBL |
-| Nepenthes | MIT / yes | none (trap you link to) | N | N | N | N | N | N | **Y** | **Y (Markov)** | N |
-| Iocaine | MIT / yes | per-request script | N | N | ~ | N | ~ | N | ~ | **Y (Markov)** | ~ |
-| CrowdSec | MIT / yes | behavioural + crowd reputation | N | N | **Y (1.8)** | Y | Y | **Y (1.8)** | N | N | **Y (federation)** |
-| OWASP CRS | Apache-2 / yes | anomaly score | N | N | N | N | ~ (UA blocklist) | N | N | N | N |
-| fail2ban | GPL / yes | per-IP threshold | N | N | N | ~ | N | N | N | N | ~ local |
-| Cloudflare Bot Mgmt | no / cloud | **ML score 1–99** | **Y (JA3+JA4)** | **Y** | Y | Y | Y (+ Web Bot Auth) | N (AI Labyrinth) | **Y** | ~ decoys | Y |
-| DataDome / HUMAN / Kasada | no / cloud | **ML** | **Y** | **Y / ~** | Y | Y (biometrics) | Y | ~/Y | N | N | Y |
+| **Henbane** | **AGPL/yes** | weighted score+fusion | ~coarse | N (planned) | N | ~velocity | **rDNS+WBA+IP** | Y | **Y** | **Y** | Y |
+| Anubis | MIT/yes | weight score | N | N | N | N | UA+CIDR+rDNS | Y | N | N | opt DNSBL |
+| go-away | MIT/yes | CEL+fp | **JA3N/JA4** | ~ | ~ | N | IP ranges | opt | N | N | DNSBL |
+| Nepenthes | MIT/yes | none | N | N | N | N | N | N | **Y** | **Y** | N |
+| Iocaine | MIT/yes | per-req script | N | N | ~ | N | ~ | N | ~ | **Y** | ~ |
+| CrowdSec | MIT/yes | behavioural+crowd | N | N | Y (1.8) | Y | Y | Y (1.8) | N | N | **Y** |
+| OWASP CRS | Apache/yes | anomaly score | N | N | N | N | ~UA | N | N | N | N |
+| Cloudflare | no/cloud | **ML 1–99** | **JA3+JA4** | **Y** | Y | Y | Y+WBA | N (AI Labyrinth) | **Y** | ~ | Y |
+| DataDome/HUMAN/Kasada | no/cloud | **ML** | **Y** | **Y/~** | Y | Y | Y | ~/Y | N | N | Y |
 
-Reading of the matrix: on the **left** (fingerprint depth / ML) Henbane sits with
-the open-source field and well below the commercial ML systems. On the **right**
-(good-bot verification, PoW, tarpit, poison, federation) it is at or ahead of the
-whole open-source field — notably the **only** open-source entry that pairs a
-full good-bot-verification triad with a content-poisoning layer.
+On fingerprint depth / ML Henbane sits with the open-source field, below the
+commercial systems. On good-bot verification, PoW, tarpit, poison, and federation
+it is at or ahead of the whole open-source field — the only open-source entry
+pairing a full good-bot-verification triad with content poisoning.
 
 ---
 
-## 3. What each signal is actually worth (the evasion reality)
+## 4. What each signal is worth (the evasion reality)
 
-Valuing a simple classifier honestly means admitting no single network-layer
-signal is a wall:
+No single network-layer signal is a wall:
 
-- **TLS JA3/JA4** is cheaply forged for one function argument — `curl_cffi`
-  `impersonate="chrome"`, uTLS `ClientHelloID` — and JA3 is effectively obsolete
-  (Chrome 110+/Firefox 114+ randomise extension order, so one browser yields many
-  JA3s). JA4 is better but still non-unique.
-- **HTTP/2 frame fingerprint** is more robust against *simple* clients (">95% of
-  automated HTTP/2 clients don't match any known browser") but is reproduced by
-  impersonation toolkits.
-- **IP reputation / ASN** is defeated by residential/mobile proxies (85–99%
-  success) and CGNAT makes range-blocking dangerous.
-- **Proof-of-work taxes, it does not classify.** A native solver reportedly clears
-  ~11,000 Anubis sites in minutes for well under 1¢; the cost lands asymmetrically
-  on every low-end *human* device.
-- **Headless real browsers** (nodriver / patchright / Camoufox) defeat header and
-  TLS signals and increasingly behavioural ones.
-- **Scale:** Imperva 2024 put bad bots at 32% of traffic with **60.5% of bad-bot
-  traffic "evasive"** (real-browser automation).
+- **TLS JA3/JA4** is forged for one argument (`curl_cffi impersonate="chrome"`,
+  uTLS), and JA3 is effectively obsolete (Chrome 110+/Firefox 114+ randomise
+  extension order); JA4 is better but still non-unique (refs [1–5]).
+- **HTTP/2 fingerprint** flags >95% of *simple* h2 clients but is reproduced by
+  impersonation toolkits (ref [7]).
+- **IP reputation / ASN** is defeated by residential proxies (85–99% success).
+- **Proof-of-work** taxes, it does not classify; a native solver clears thousands
+  of Anubis sites for cents, and the cost lands on every low-end human device.
+- **Headless real browsers** defeat header, TLS, and increasingly behavioural
+  signals.
+- Academic consensus (refs [8][9]): TLS/header features classify *simple* bots
+  well but "cannot distinguish humans from bots using full-stack emulation";
+  behaviour is the most evasion-resistant layer; the strongest systems **fuse**
+  layers and look for **cross-layer contradiction**. Henbane's consistency scorer
+  is a small, cheap instance of that contradiction idea at the header layer.
 
-Academic consensus: TLS/header features classify *simple* bots well but "cannot
-distinguish humans from bots using full-stack emulation"; behaviour is the most
-evasion-resistant layer and the least faked; the strongest systems **fuse** layers
-and look for **cross-layer contradiction** (TLS vs HTTP/2 vs header order vs
-claimed UA). Henbane's consistency scorer is a small, cheap instance of exactly
-that contradiction-detection idea, at the header+protocol layer.
+Real-world scale (ref [Imperva 2025]): automated traffic is ~51% of the web, bad
+bots ~37%, and a large and growing share is "evasive" real-browser automation —
+precisely the traffic the header layer can't touch.
 
 ---
 
-## 4. Honest positioning
+## 5. Honest positioning
 
-1. **Right league.** A weighted header/path/IP scoring classifier is the same
-   class as Anubis's `WEIGH` and CRS's anomaly score, and richer than fail2ban.
-   Anubis — the headline comparator — *also* has no TLS/HTTP-2 fingerprinting and
-   its author calls PoW "a placeholder… so more time can be spent on
-   fingerprinting." So "no ML, no raw TLS/h2 fingerprint" is **parity** with the
-   open-source field, not a gap.
-2. **Effective where it counts, cheaply.** Header/UA/protocol signals reliably
-   catch the plain HTTP-library scrapers (curl/requests/Scrapy/Go) that make up a
-   large share of volume and are exactly what overwhelmed FOSS infrastructure —
-   the benchmark in §1 bears this out.
-3. **Honest ceiling.** The same signals are near-worthless against the ~60% of
-   bad-bot traffic that is evasive (headless + residential + impersonation). We
-   don't claim otherwise; §1 includes the headless miss on purpose.
-4. **Deception is the real differentiator.** Precisely because fingerprinting
-   can't reliably block evasive crawlers, the labyrinth + poison stage degrades
-   the exact adversary (LLM-training crawlers) that a wall can't stop — at lower
-   collateral than taxing every human with PoW. Henbane already leads with
-   "classify cheaply → poison the bots → PoW only as a weight tier," which answers
-   the loudest criticism of the PoW-everyone approach head-on.
-5. **Ahead of Anubis where it matters for this niche:** shipped **Web Bot Auth**
-   (RFC 9421; still an open issue in Anubis), the full reverse-DNS + IP-range
-   good-bot triad (so verified crawlers aren't poisoned — the mistake Nepenthes
-   makes on purpose), metrics, and federation.
-
-> A no-ML header/scoring classifier catches the simple-HTTP-client majority as
-> well as Anubis or OWASP CRS do, verifies good bots the way the big players do,
-> and concedes — as every system including Cloudflare effectively does — that
-> determined headless browsers behind residential proxies can't be blocked on
-> request metadata alone. Against those, deception is a more honest, lower-
-> collateral tool than a proof-of-work wall.
+1. **Right league.** A weighted header/scoring classifier is the same class as
+   Anubis's `WEIGH` engine and OWASP CRS's anomaly score; Anubis also has no
+   TLS/HTTP-2 fingerprinting and its author calls PoW a placeholder. Henbane
+   competes with the open-source gates, **not** Cloudflare/DataDome.
+2. **Effective where it's cheap.** It reliably catches the plain HTTP-library
+   scrapers that dominate volume and overwhelmed FOSS infrastructure.
+3. **Honest ceiling + honest FP.** It cannot separate a careful scraper or a real
+   headless browser from a human on headers, and it flags browsers older than
+   ~2021–2023. Both are stated, measured, and mitigated — not hidden.
+4. **Ahead of Anubis** on Web Bot Auth (an open issue there), the good-bot triad
+   (so verified crawlers aren't poisoned — the mistake Nepenthes makes on
+   purpose), metrics, and federation.
+5. **Deception is the differentiator.** Because no header signal blocks evasive
+   crawlers, the labyrinth + poison degrade exactly that adversary at lower
+   collateral than taxing every human with PoW — and lower collateral than the
+   documented old-browser blocking of Cloudflare/Anubis (refs [11–18]).
 
 ---
 
-## 5. Cheap future wins (ranked by value/cost)
+## 6. Threats to validity
 
-1. **HTTP/2 SETTINGS / pseudo-header-order fingerprint** — flags >95% of naive
-   HTTP/2 clients and is the single strongest anti-spoofing signal reachable
-   without device JS. Not reachable in the zero-dep core (Go hides the raw
-   frames); ships as an optional-dependency module. See
-   `docs/design/2026-11-15-scoring-classifier.md`.
-2. **ASN / datacenter-IP scorer** — a weighted soft signal that compounds with
-   consistency (needs an embedded dataset). Residential proxies evade it, so it's
-   a contributor, never a gate.
-3. **Observe mode** — classify-and-log without acting, so an operator can tune
-   thresholds from their own traffic before turning scoring up. The cheapest way
-   to reduce the false-positive risk that bites every aggressive bot defence.
+- **Synthetic corpus.** These are *representative* shapes from verified defaults,
+  not captured live traffic. Real distributions vary; a user can set a
+  non-default client config. The corpus is small (21). Treat the numbers as
+  illustrative of the *mechanism*, not population estimates.
+- **Self-benchmark.** The same author wrote the corpus and the detector. The
+  mitigations are using cited real defaults, including the failing cases, and an
+  open harness anyone can extend — but it is not an independent audit.
+- **The FP surface is a floor, not a ceiling.** More niche legitimate clients
+  exist (SeaMonkey, K-Meleon, old WebViews, some feed readers) that this corpus
+  doesn't enumerate; the real-world FPR on old browsers could be higher. IE 11,
+  Pale Moon, and text browsers happen to *escape* this scorer only because their
+  UAs lack a `Chrome/Firefox/Safari/Edg/OPR` token — a fragile accident, not a
+  designed carve-out.
+- **Base-rate numbers are a model.** The precision-at-prior table uses the
+  corpus FPR (0.33), which is inflated by a corpus deliberately rich in edge
+  browsers; a real deployment's edge-browser fraction is smaller, so real
+  precision is better than the 1%-base-rate figure. The table's purpose is to show
+  the *shape* of the collapse, not to predict a deployment's precision.
+- **Version drift.** Client defaults change (Accept-Encoding `br`/`zstd` depend on
+  installed codecs; UA strings and header sets evolve). Citations are pinned to
+  versions in §7; re-verify before quoting.
+- **Scorer-in-isolation.** The full engine adds the good-bot verifier (which
+  rescues the flagged crawlers), denylists, velocity, and TLS-fp — so the
+  deployed false-positive and detection behaviour differ from this isolated view.
 
 ---
 
-## Sources
+## 7. References
 
-Project docs & code: Anubis (`TecharoHQ/anubis` policies.mdx, botPolicies.yaml,
-issue #744 for Web Bot Auth), go-away (`git.gammaspectra.live/git/go-away`),
-Nepenthes (zadzmo.org/code/nepenthes), Iocaine (codeberg.org/iocaine), CrowdSec
-1.8 bot detection (crowdsec.net), OWASP CRS anomaly scoring (coreruleset.org).
-Commercial: Cloudflare bot-score / detection-engines / JA4 Signals / AI Labyrinth
-/ Web Bot Auth blogs (developers.cloudflare.com, blog.cloudflare.com), DataDome /
-HUMAN / Kasada / Akamai / AWS WAF Bot Control docs. Evasion & measurement:
-curl-impersonate, uTLS, ntop "is JA4 obsolete", Scrapfly HTTP/2 tool, Imperva 2024
-Bad Bot Report, arXiv 2602.09606 (TLS classification) and 2412.02266 (BOTracle
-feature importance), and the Anubis false-positive discussions (LWN, GNOME
-Discourse, HN). Full URLs were gathered in the competitive survey that produced
-this document; figures marked vendor-reported are not independently audited.
+**Verified client default headers** (primary source per client):
+curl `lib/http.c` + manpage; wget `src/http.c`; requests `utils.py`; urllib3
+`connection.py`/`util/request.py`; httpx `_client.py`; aiohttp `client_reqrep.py`;
+CPython `http/client.py` (`Accept-Encoding: identity`, `Python-urllib`); Go
+`net/http/request.go` + `transport.go` (`Go-http-client/1.1`, auto-gzip, h2 via
+`DefaultTransport`); axios `lib/defaults`/`adapters/http.js`; got, node-fetch,
+undici source; Java `HttpClient` (HTTP/2 default); OkHttp `BridgeInterceptor`;
+Apache HttpClient 5 `HttpClientBuilder`; Scrapy `settings/default_settings.py`.
+
+**Sec-Fetch / Fetch Metadata timeline:** W3C *Fetch Metadata Request Headers*
+(w3.org/TR/fetch-metadata); MDN + caniuse per-header; Chrome 76 (web.dev);
+Firefox 90 (Mozilla security blog, 2021-07-12); Safari 16.4 (WebKit blog;
+WebKit bug 246508 — Sec-Fetch-User deliberately not implemented).
+
+**Bot base rates:** [Imperva 2025] Imperva/Thales *2025 Bad Bot Report* (automated
+51%, bad bots 37%); Imperva 2024 (bad bots 32%); Cloudflare *Application Security
+Report 2024* (bots 31.2%); DataDome *State of Bot & Agent Security 2026* (bad bots
+15.4%, post-mitigation lower bound); Akamai SOTI 2024 (42%).
+
+**Fingerprinting & detection literature:**
+[1] Althouse, *TLS Fingerprinting with JA3/JA3S*, Salesforce Eng., 2017.
+[2] `salesforce/ja3`, 2017.
+[3] `FoxIO-LLC/ja4` (JA4+), 2023.
+[4] Anderson & McGrew, *Accurate TLS Fingerprinting using Destination Context*,
+arXiv:2009.01939, 2020 (fingerprint ≠ identity).
+[5] Frolov & Wustrow, *The use of TLS in Censorship Circumvention*, NDSS 2019 (uTLS).
+[6] Anderson & McGrew, *TLS Beyond the Browser*, ACM IMC 2019.
+[7] Segal & Shuster (Akamai), *Passive Fingerprinting of HTTP/2 Clients*, Black Hat
+EU 2017 (the Akamai h2 fingerprint).
+[8] Kadel et al., *BOTracle*, arXiv:2412.02266 / ESORICS 2024 Workshops
+(behavioural vs header features).
+[9] Jarad & Bicakci, *When Handshakes Tell the Truth: Detecting Web Bad Bots via
+TLS Fingerprints*, arXiv:2602.09606, 2026 (JA4+CatBoost, AUC 0.998 — a lab result;
+contrast with base-rate limits).
+[10] Axelsson, *The Base-Rate Fallacy and the Difficulty of Intrusion Detection*,
+ACM TISSEC 3(3), 2000 (false-alarm rate is the limiting factor).
+
+**Documented false-positive harm from aggressive bot walls:**
+[11] Iaso, *Block AI scrapers with Anubis*, 2025 (text browsers / old machines
+locked out). [12] Brockmeier, *Anubis…*, LWN, 2025-07-10. [13] Proven,
+*Cloudflare's bot bouncer blocks weirdo browsers*, The Register, 2025-03-04 (Pale
+Moon, Falkon, SeaMonkey, Firefox ESR). [14] Perry, *The Trouble with CloudFlare*,
+Tor blog, 2016. [15] DeVault, *Please stop externalizing your costs…*, 2025.
+[16] Venerandi, *FOSS infrastructure is under attack by AI companies*, LibreNews,
+2025. [17] Read the Docs, *AI crawlers need to be more respectful*, 2024.
+[18] Bort, *Open source devs are fighting AI crawlers…*, TechCrunch, 2025.
+
+*Figures marked vendor-reported are not independently audited. Several facts here
+corrected the first version of this study; see §1 iteration 1.*
