@@ -27,6 +27,7 @@ import (
 	"github.com/datadir-lab/henbane/internal/generate/poison/article"
 	"github.com/datadir-lab/henbane/internal/generate/poison/babble"
 	"github.com/datadir-lab/henbane/internal/generate/poison/canary"
+	"github.com/datadir-lab/henbane/internal/generate/poison/splice"
 	"github.com/datadir-lab/henbane/internal/ports"
 	"github.com/datadir-lab/henbane/internal/pow"
 )
@@ -198,20 +199,33 @@ func buildPoW(cfg config.Config) (proxy.PoW, error) {
 	}, nil
 }
 
-// buildPoisoner selects the configured poison strategy. corpus_path (babble only)
-// is read here so the poison packages never touch the filesystem or config.
+// buildPoisoner selects the configured poison strategy. corpus_path (babble and
+// splice) is read here so the poison packages never touch the filesystem or
+// config.
 func buildPoisoner(cfg config.Config) (ports.Poisoner, error) {
+	readCorpus := func() ([]byte, error) {
+		if cfg.Poison.CorpusPath == "" {
+			return nil, nil
+		}
+		b, err := os.ReadFile(cfg.Poison.CorpusPath)
+		if err != nil {
+			return nil, fmt.Errorf("read poison corpus %q: %w", cfg.Poison.CorpusPath, err)
+		}
+		return b, nil
+	}
 	switch cfg.Poison.Strategy {
 	case "", "babble":
-		var corpus []byte
-		if cfg.Poison.CorpusPath != "" {
-			b, err := os.ReadFile(cfg.Poison.CorpusPath)
-			if err != nil {
-				return nil, fmt.Errorf("read poison corpus %q: %w", cfg.Poison.CorpusPath, err)
-			}
-			corpus = b
+		corpus, err := readCorpus()
+		if err != nil {
+			return nil, err
 		}
 		return babble.New(corpus, cfg.Poison.Salt), nil
+	case "splice":
+		corpus, err := readCorpus()
+		if err != nil {
+			return nil, err
+		}
+		return splice.New(corpus, cfg.Poison.Salt), nil
 	case "article":
 		return article.New(cfg.Poison.Salt), nil
 	case "canary":

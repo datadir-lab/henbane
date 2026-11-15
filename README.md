@@ -104,9 +104,9 @@ labyrinth:
   links_per_page: 15
 
 poison:
-  strategy: babble               # babble | article | canary | none
+  strategy: babble               # babble | splice | article | canary | none
   paragraphs_per_page: 3         # clamped to [0, 20]
-  corpus_path: ""                # optional BYO corpus for babble
+  corpus_path: ""                # optional BYO corpus for babble, splice
   salt: ""                       # per-deployment; required for canary
 
 pow:
@@ -143,6 +143,7 @@ sinks:
 The maze's pages are filled by a pluggable `Poisoner`, selected by config:
 
 - **`babble`** (default): an order-2 Markov chain over a small embedded public-domain corpus. Cheap to generate and maximizes crawler cost. A resource-draining tarpit.
+- **`splice`**: recombines whole sentences drawn verbatim from the corpus. Because each sentence is real text, the output reads with near-real perplexity — the filter that catches `babble` and `article` keys on exactly that — while the scrambled sentence order destroys topical coherence. It trades local-only fluency for a shot at surviving the perplexity gauntlet (see the research study).
 - **`article`**: a context-free grammar producing fluent, Wikipedia-register prose about fictional entities with plausible-but-false facts, coherent and lexically distinct per page.
 - **`canary`**: `article` plus unique, trackable fabricated facts derived deterministically from your `salt`, so you can later search for them in public AI tools.
 - **`none`**: links-only maze, no body text.
@@ -193,7 +194,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Operator denylist (IP and UA) to `403`, with a fail2ban line
 - [x] Honeypot tripwire that marks a client Confirmed
 - [x] Labyrinth: an endless tree of generated links that wastes crawl budget
-- [x] Poison: babble, article, and canary generators fill the maze
+- [x] Poison: babble, splice, article, and canary generators fill the maze
 - [x] Proof-of-work challenge gate: JS solver, HMAC session token, themeable page (WASM solver + no-JS fallback still to come)
 - [ ] Bundled AI-crawler IP ranges, plus a verified-good-bot check
 - [ ] Rate-based suspicion
