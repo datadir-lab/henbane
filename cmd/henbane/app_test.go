@@ -3,11 +3,16 @@ package main
 import (
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"io"
 	"log/slog"
+	"math/bits"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +52,96 @@ func TestSidecarAuthDecision(t *testing.T) {
 	}
 	if got := auth("badbot/1.0"); got != http.StatusForbidden {
 		t.Errorf("denylisted UA: auth status = %d, want 403", got)
+	}
+}
+
+// solvePoW finds a nonce whose SHA-256(challenge+nonce) has >= difficulty leading
+// zero bits — the same scheme the browser solver uses.
+func solvePoW(difficulty int, challenge string) string {
+	for i := 0; ; i++ {
+		s := strconv.Itoa(i)
+		d := sha256.Sum256([]byte(challenge + s))
+		n := 0
+		for _, c := range d {
+			if c == 0 {
+				n += 8
+				continue
+			}
+			n += bits.LeadingZeros8(c)
+			break
+		}
+		if n >= difficulty {
+			return s
+		}
+	}
+}
+
+func TestProofOfWorkRoundTripEndToEnd(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "UPSTREAM")
+	}))
+	defer upstream.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	var cfg config.Config
+	cfg.Upstream = upstream.URL
+	cfg.PoW.Mode = "all"        // challenge every un-authed request
+	cfg.PoW.DifficultyBits = 12 // low enough to solve instantly in a test
+
+	h, _, err := newHandler(cfg, logger, nil, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+
+	// 1. First request is challenged (no token yet).
+	resp, err := client.Get(front.URL + "/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	page := string(body)
+	if strings.Contains(page, "UPSTREAM") {
+		t.Fatal("an un-authed request under pow.mode=all must be challenged, not proxied")
+	}
+
+	// 2. Parse the challenge parameters the browser solver would read.
+	field := func(name string) string {
+		m := regexp.MustCompile(name + `="([^"]+)"`).FindStringSubmatch(page)
+		if m == nil {
+			t.Fatalf("challenge page missing %s; body=%.200s", name, page)
+		}
+		return m[1]
+	}
+	challenge, verifyPath := field("data-challenge"), field("data-verify")
+	difficulty, _ := strconv.Atoi(field("data-bits"))
+
+	// 3. Solve it and submit the solution — the verify endpoint sets the cookie.
+	sol := solvePoW(difficulty, challenge)
+	payload := `{"challenge":"` + challenge + `","solution":"` + sol + `"}`
+	vr, err := client.Post(front.URL+verifyPath, "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vr.Body.Close()
+	if vr.StatusCode != http.StatusNoContent {
+		t.Fatalf("verify returned %d, want 204 (solution accepted, cookie set)", vr.StatusCode)
+	}
+
+	// 4. With the session cookie, the same request now reaches the upstream.
+	resp2, err := client.Get(front.URL + "/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body2, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	if string(body2) != "UPSTREAM" {
+		t.Errorf("after solving the PoW the client must reach upstream, got %.120q", string(body2))
 	}
 }
 
