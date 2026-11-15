@@ -74,7 +74,11 @@ func (s *Scorer) Score(r ports.RequestView) []ports.ScoreResult {
 	// client's TLS itself. Behind a proxy or CDN, ProtocolViewer reports the
 	// proxy→Henbane hop (and most CDNs re-originate as HTTP/1.1), which would
 	// flag every real browser; so the signal is applied only when a TLS
-	// fingerprint proves Henbane is the direct TLS terminator.
+	// fingerprint proves Henbane is the direct TLS terminator. (Trade-off: on a
+	// plaintext :80 endpoint there is no fingerprint, so this signal is suppressed
+	// even though the version would be the client's — a client could choose the
+	// plaintext port to dodge this single point. Serving the public site over TLS
+	// avoids that; the signal is worth only one point regardless.)
 	if terminatedTLS(r) {
 		if pv, ok := r.(ports.ProtocolViewer); ok && pv.HTTPMajorVersion() == 1 {
 			add("browser_mismatch:legacy_http", s.w.LegacyHTTP)

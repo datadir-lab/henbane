@@ -171,13 +171,13 @@ signals, and why deception handles the ones no signal can block.
 **Quantified evasion floor.** The checks are presence-only, so the evasion cost is
 a fixed, tiny number of header lines. A default `python-requests`/`httpx` client
 (which already sends `Accept: */*` and `Accept-Encoding: gzip`) needs only **two**
-added headers — `Sec-Fetch-Site` and `Accept-Language` — to score 0 and be allowed
-outright, HTTP version irrelevant. Setting all four presence headers caps the
-residual at the single legacy-http point (below the Suspect threshold). So this
-layer is a filter for *low-effort* bots, not a wall; its value is catching the
-large volume of scrapers that haven't bothered, not the ones that have. (An
-adversarial scorer audit established this floor; it is why the layer feeds a
-challenge and the deception stage, not a block.)
+added headers — `Sec-Fetch-Site` and `Accept-Language` — to drop below the Suspect
+threshold and be allowed: being HTTP/1.1 it retains a single legacy-http point
+(score 1 < 2), while an HTTP/2 client scores **0** outright. So the floor is two
+to three header lines. This layer is a filter for *low-effort* bots, not a wall;
+its value is catching the large volume of scrapers that haven't bothered, not the
+ones that have. (An adversarial scorer audit established this floor; it is why the
+layer feeds a challenge and the deception stage, not a block.)
 
 ---
 

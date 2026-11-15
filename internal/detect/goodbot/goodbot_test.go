@@ -4,6 +4,8 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/datadir-lab/henbane/internal/ports"
@@ -120,5 +122,39 @@ func TestMatchesDomainRejectsLookalike(t *testing.T) {
 	}
 	if !matchesDomain("crawl.googlebot.com", []string{".googlebot.com"}) {
 		t.Error("crawl.googlebot.com must match .googlebot.com")
+	}
+}
+
+func TestUALengthCapped(t *testing.T) {
+	v := newV(fakeResolver{}, true)
+	// The crawler token sits past the 512-byte UA cap, so it must not be matched
+	// (which also bounds the per-request lowercase allocation).
+	ua := strings.Repeat("x", 600) + "googlebot"
+	if _, _, ok := v.Verify(view{ip: netip.MustParseAddr("66.249.66.1"), ua: ua}); ok {
+		t.Error("a crawler token past the 512-byte UA cap must not be matched")
+	}
+}
+
+type countingResolver struct {
+	fakeResolver
+	hostCalls int
+}
+
+func (c *countingResolver) LookupHost(ctx context.Context, host string) ([]string, error) {
+	c.hostCalls++
+	return c.fakeResolver.LookupHost(ctx, host)
+}
+
+func TestPTRFanoutBounded(t *testing.T) {
+	ip := netip.MustParseAddr("66.249.66.1")
+	ptrs := make([]string, 0, 20)
+	for i := 0; i < 20; i++ {
+		ptrs = append(ptrs, "h"+strconv.Itoa(i)+".evil.example.com.")
+	}
+	cr := &countingResolver{fakeResolver: fakeResolver{ptr: map[string][]string{"66.249.66.1": ptrs}, host: map[string][]string{}}}
+	v := newV(cr, true)
+	v.resolve(ip)
+	if cr.hostCalls > maxPTRNames {
+		t.Errorf("forward lookups = %d, want <= %d (PTR fan-out must be bounded)", cr.hostCalls, maxPTRNames)
 	}
 }

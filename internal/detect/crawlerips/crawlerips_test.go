@@ -2,6 +2,7 @@ package crawlerips
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/datadir-lab/henbane/internal/ports"
@@ -128,5 +129,13 @@ func TestBundledDefaults(t *testing.T) {
 	}
 	if total < 20 {
 		t.Errorf("only %d bundled prefixes; expected the feeds to carry many more", total)
+	}
+}
+
+func TestUALengthCapped(t *testing.T) {
+	v := New(Defaults(), ports.TierBlocked, true)
+	ua := strings.Repeat("x", 600) + "gptbot"
+	if _, _, ok := v.Verify(view{ip: netip.MustParseAddr("20.171.206.5"), ua: ua}); ok {
+		t.Error("a crawler token past the 512-byte UA cap must not be matched")
 	}
 }
