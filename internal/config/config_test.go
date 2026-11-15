@@ -381,3 +381,19 @@ func TestParseVelocityDisabledIgnoresFields(t *testing.T) {
 		t.Errorf("disabled velocity must skip validation: %v", err)
 	}
 }
+
+func TestParseMetricsRoundTrip(t *testing.T) {
+	cfg, err := parsePoison(t, "upstream: \"http://a:1\"\nlisten: \":8080\"\nmetrics:\n  listen: \"127.0.0.1:9090\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Metrics.Listen != "127.0.0.1:9090" {
+		t.Errorf("metrics.listen = %q", cfg.Metrics.Listen)
+	}
+}
+
+func TestParseMetricsMustNotShareListener(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nlisten: \":8080\"\nmetrics:\n  listen: \":8080\"\n"); err == nil {
+		t.Error("metrics.listen equal to listen must be rejected")
+	}
+}
