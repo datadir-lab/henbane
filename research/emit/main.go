@@ -21,6 +21,7 @@ import (
 	"github.com/datadir-lab/henbane/internal/generate/poison/article"
 	"github.com/datadir-lab/henbane/internal/generate/poison/babble"
 	"github.com/datadir-lab/henbane/internal/generate/poison/canary"
+	"github.com/datadir-lab/henbane/internal/generate/poison/splice"
 	"github.com/datadir-lab/henbane/internal/ports"
 )
 
@@ -31,12 +32,14 @@ type doc struct {
 	HTML     string `json:"html"`
 }
 
-var strategyNames = []string{"babble", "article", "canary"}
+var strategyNames = []string{"babble", "splice", "article", "canary"}
 
 func poisonerFor(name, salt string) ports.Poisoner {
 	switch name {
 	case "babble":
 		return babble.New(nil, salt)
+	case "splice":
+		return splice.New(nil, salt)
 	case "article":
 		return article.New(salt)
 	case "canary":
@@ -99,8 +102,19 @@ func main() {
 		}
 	}
 
-	// The baseline is site-agnostic; only emit it in single-site mode.
+	// splice_ref is a research probe, not a shipped strategy: splice over the
+	// reference corpus (the register the perplexity model expects) instead of the
+	// embedded one. It isolates whether sentence-splicing survives when the corpus
+	// matches the filter's distribution, versus the embedded-corpus mismatch the
+	// shipped `splice` shows. Single-site only.
 	if *sites <= 1 {
+		if raw, err := os.ReadFile(*refPath); err == nil {
+			gen := labyrinth.New(*links, splice.New(raw, *baseSalt), *paragraphs)
+			for i := 0; i < *n; i++ {
+				emitPage("splice_ref", "", fmt.Sprint(i), gen)
+			}
+		}
+		// The baseline is site-agnostic; only emit it in single-site mode.
 		if err := emitBaseline(enc, *refPath, *n, *paragraphs); err != nil {
 			fmt.Fprintln(os.Stderr, "baseline:", err)
 			os.Exit(1)

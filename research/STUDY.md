@@ -11,6 +11,8 @@ Perplexity cutoff (calibrated): **618**.
 | strategy | generated | boilerplate | Gopher | C4 | perplexity | dedup |
 |---|---|---|---|---|---|---|
 | babble (Markov) | 300 | 300 (100%) | 300 (100%) | 300 (100%) | 0 (0%) | 0 (0%) |
+| splice (embedded corpus) | 300 | 300 (100%) | 286 (95%) | 286 (95%) | 0 (0%) | 0 (0%) |
+| splice_ref (matched corpus) | 300 | 300 (100%) | 300 (100%) | 198 (66%) | 170 (57%) | 170 (57%) |
 | article (grammar) | 300 | 300 (100%) | 300 (100%) | 300 (100%) | 0 (0%) | 0 (0%) |
 | canary | 300 | 300 (100%) | 300 (100%) | 300 (100%) | 0 (0%) | 0 (0%) |
 | real text (baseline) | 300 | 300 (100%) | 300 (100%) | 231 (77%) | 210 (70%) | 89 (30%) |
@@ -22,6 +24,8 @@ Perplexity cutoff (calibrated): **618**.
 | strategy | median | 10th pct | min | multiple of real-text median |
 |---|---|---|---|---|
 | babble (Markov) | 1934 | 1551 | 1111 | 4.0x |
+| splice (embedded corpus) | 1913 | 1695 | 1456 | 4.0x |
+| splice_ref (matched corpus) | 553 | 473 | 396 | 1.2x |
 | article (grammar) | 1059 | 891 | 724 | 2.2x |
 | canary | 1065 | 898 | 731 | 2.2x |
 | real text (baseline) | 479 | 393 | 296 | 1.0x |
@@ -32,19 +36,25 @@ Perplexity cutoff (calibrated): **618**.
 
 ## What the numbers say
 
-- **The perplexity stage filters 100% of every current poison strategy.** The cutoff that keeps ~90% of real text is ~618; the *lowest-perplexity* poison document is still well above it. A perplexity filter (the CCNet/KenLM stage that discards ~84% of Common Crawl) catches this poison wholesale.
-- **Grammar helps, but not enough.** `article`/`canary` (context-free grammar) score noticeably lower perplexity than `babble` (order-2 Markov) — the Markov word-salad is the worst case, exactly as predicted — yet all three sit several times above real prose.
-- **The gap is large and structural.** Poison medians are many multiples of the real-text median (see table). Closing it is not a matter of tuning; it needs real, common vocabulary in natural sequences — not coined entities (which go straight to `<unk>`) and not Markov transitions.
+- **One strategy clears the full gauntlet: sentence-splicing over a distribution-matched corpus.** `splice_ref` (whole sentences recombined from the reference corpus, whose register matches the perplexity model) lands at 553 perplexity — 1.2x real text, under the ~618 cutoff — and 57% survive through dedup. Everything else (babble (Markov), splice (embedded corpus), article (grammar), canary) is filtered ~100% at the perplexity stage.
+- **The lever is the corpus, not the generator.** `splice` over the *embedded* corpus scores 1913 — indistinguishable from `babble`'s Markov word-salad — even though it emits whole real sentences. Keeping sentences intact buys nothing when the corpus is out-of-distribution to the filter; matching the corpus buys everything. (The generators invent coined entities that hit `<unk>`, which is why they sit 2-4x above real text.)
+- **Random recombination dodges dedup better than real text.** `splice_ref` finishes at 57% versus the real baseline's 30%: sequential real chunks overlap and dedup against each other, while randomly recombined sentences keep pages mutually distinct. Here recombination is a feature, not a bug.
 
 ## How to poison the well better (actionable)
 
-1. **Drop coined proper nouns** — `article`/`canary` invent entity names that are out-of-vocabulary to any real LM and spike perplexity. Use real, common words.
-2. **Generate at the sentence/paragraph level with a real grammar or a small LM**, not word-level Markov — the win from `article` over `babble` shows the direction.
-3. **The honest ceiling:** to approach the cutoff you likely need an LLM rewrite (the Nemotron-CC laundering path), which trades the zero-dependency property. Henbane keeps the fluent generators as *filter-resistant-ish*, and leans on the **tarpit + federation** story (see `docs/STRATEGY.md`) rather than claiming single-site model impact — which remains unobservable from outside.
+1. **Point `splice` at a large, distribution-matched corpus** via `poison.corpus_path`. That single change moves poison from 0% to ~57% survival; the shipped embedded corpus is deliberately idiosyncratic and matches no real LM's distribution.
+2. **Match the crawler's own training distribution.** `splice_ref` works because the reference corpus shares register with the perplexity model's training text; source prose resembling the encyclopedic/web text the target actually trains on.
+3. **Keep the pool large.** A small corpus recombines into near-duplicates and dies at dedup; a large one keeps pages distinct (splice_ref lost nothing to dedup here).
+
+## Honest caveats
+
+- **Perplexity is a trigram approximation** (option b) trained on held-out public-domain prose; a real KenLM/Wikipedia model would sharpen the absolute numbers, not the direction.
+- **These filters do not check discourse coherence.** `splice_ref`'s sentences are real but their *order* is scrambled; the Gopher/C4/perplexity/dedup gauntlet scores fluency and duplication, not whether a paragraph makes sense. A semantic-coherence filter or an LLM judge could still catch it — treat splice as *beats the CCNet-style gauntlet*, not *undetectable*.
+- **Policy / liability.** Henbane ships only the fictional embedded corpus, which (as shown) does not survive. Pointing `splice` at a real, distribution-matched corpus is the operator's choice and liability — the same boundary as `babble`'s `corpus_path`.
 
 ---
 
-Regenerate with the commands at the top of `research/study.py`. Perplexity is option (b), an interpolated word-trigram trained on held-out public-domain prose; a real KenLM/Wikipedia model is the documented upgrade and would sharpen the absolute numbers (not the direction).
+Regenerate with the commands at the top of `research/study.py`.
 ## Federation: does multi-site poison add up?
 
 Simulating **25 Henbane deployments** (20 docs each), pooled and run through cross-site MinHash dedup. The question the [strategy](../docs/STRATEGY.md) hinges on: when many sites poison together, does the volume accumulate, or does dedup collapse it?
@@ -53,4 +63,4 @@ Simulating **25 Henbane deployments** (20 docs each), pooled and run through cro
 
 - **With Henbane's per-deployment salt, it accumulates.** Each site's output is distinct, so the surviving-after-dedup count grows roughly linearly with the number of sites (article: 500 unique docs across 25 sites).
 - **Without a per-site salt, it collapses.** Identical sites dedup down to one site's worth (flat dashed line, ~20 docs no matter how many sites). This is *why* the generators mix a per-deployment salt into their seed.
-- **Honest caveat.** Because single-site poison is filtered by perplexity (above), cross-site *volume* only reaches a model if poison fluency improves first (see techniques below). The federation benefit that is **real today** is cumulative *tarpit cost*: every site independently burns the crawler's bandwidth and compute, and that scales linearly with the number of sites — no dedup can collapse wasted fetch work.
+- **Honest caveat.** Poison from the *generators* is filtered by perplexity (above), so their cross-site volume is symbolic. The federation benefit that is **real today for every strategy** is cumulative *tarpit cost*: each site independently burns the crawler's bandwidth and compute, scaling linearly with sites, and no dedup can collapse wasted fetch work. And for the one strategy that clears the gauntlet — matched-corpus splice — this salted accumulation is exactly the mechanism by which many sites' *surviving* poison adds up instead of collapsing.

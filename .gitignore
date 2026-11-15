@@ -1,5 +1,6 @@
 /henbane
 /henbane.exe
+/emit.exe
 *.out
 /dist/
 .idea/
