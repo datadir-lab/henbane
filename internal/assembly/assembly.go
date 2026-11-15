@@ -10,7 +10,9 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/datadir-lab/henbane/internal/adapters/challenge"
 	"github.com/datadir-lab/henbane/internal/adapters/proxy"
@@ -23,6 +25,7 @@ import (
 	"github.com/datadir-lab/henbane/internal/detect/honeypot"
 	"github.com/datadir-lab/henbane/internal/detect/remotedeny"
 	"github.com/datadir-lab/henbane/internal/detect/velocity"
+	"github.com/datadir-lab/henbane/internal/detect/webbotauth"
 	"github.com/datadir-lab/henbane/internal/flagstore"
 	"github.com/datadir-lab/henbane/internal/generate/bomb"
 	"github.com/datadir-lab/henbane/internal/generate/labyrinth"
@@ -80,6 +83,37 @@ type Components struct {
 	Maze     proxy.MazeWriter
 	PoW      proxy.PoW
 	Bomb     proxy.Bomb
+}
+
+// WebBotAuth builds the Web Bot Auth detector when enabled, fetching the
+// configured agent key directories at startup (fetch failures are logged and
+// skipped; the keys refresh on restart). It returns nil when disabled, so the
+// caller can append it to the engine's detectors only when present.
+func WebBotAuth(cfg config.Config, logger *slog.Logger) ports.Detector {
+	if !cfg.WebBotAuth.Enabled {
+		return nil
+	}
+	tier := ports.TierBlocked
+	switch cfg.WebBotAuth.Tier {
+	case "suspect":
+		tier = ports.TierSuspect
+	case "confirmed":
+		tier = ports.TierConfirmed
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	var keys []webbotauth.Key
+	for _, origin := range cfg.WebBotAuth.Directories {
+		ks, err := webbotauth.FetchDirectory(ctx, client, origin)
+		if err != nil {
+			logger.Warn("webbotauth: directory fetch failed", "origin", origin, "err", err)
+			continue
+		}
+		logger.Info("webbotauth: directory loaded", "origin", origin, "keys", len(ks))
+		keys = append(keys, ks...)
+	}
+	return webbotauth.NewDetector(webbotauth.NewVerifier(keys), tier)
 }
 
 // Build assembles Components from cfg. Any extra detectors (e.g. a federation

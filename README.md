@@ -193,6 +193,12 @@ federation:
   report_token: ""               # optional bearer token for the report endpoint
   deployment_id: ""              # stable ID so the feed can require cross-reporter consensus
 
+webbotauth:
+  enabled: false                 # verify cryptographically-signed AI agents
+  tier: "block"                  # suspect | confirmed | block — action for a verified agent
+  directories:                   # agent key directories (https) to trust
+    - "https://chatgpt.com"
+
 sinks:
   fail2ban:
     enabled: true
@@ -267,6 +273,12 @@ A bot caught at one site should be known at the next. Two opt-in halves:
 
 Both halves are off by default.
 
+## Verified AI agents (Web Bot Auth)
+
+A User-Agent is a guess; a cryptographic signature is proof. [Web Bot Auth](https://blog.cloudflare.com/signed-agents/) (RFC 9421 HTTP Message Signatures + a published key directory) lets an agent *prove* its identity with an Ed25519 signature — OpenAI's ChatGPT agent, DuckDuckGo, and others already sign their traffic. Set `webbotauth.enabled`, list the agent key `directories` you recognise, and Henbane verifies each signature against those directories' keys and applies `webbotauth.tier` to a **verified** agent — so you act on a proven identity, not a spoofable header.
+
+The action is yours: `block` a verified AI crawler (now that it can't hide behind a fake UA), `confirmed` to feed it the tarpit/poison, or `suspect` to challenge it. Keys are fetched from the configured directories at startup (restart to refresh). Ed25519 only, matching the live ecosystem. The verifier is **interoperability-tested against Cloudflare's reference signer** — it accepts a real reference-signed request and rejects tampered or expired ones. A verification failure is always treated as "not a verified agent", never as a trusted one.
+
 ## TLS fingerprinting
 
 When Henbane terminates TLS itself (set `tls.cert`/`tls.key`), it fingerprints each client's TLS handshake — a coarse, stable hash of the cipher suites, groups, point formats, ALPN, signature schemes, and versions the client offers, with GREASE filtered out. Automated stacks (Go's `net/http`, Python, curl, …) present different TLS characteristics than real browsers, so the fingerprint is a signal that survives a client lying in its User-Agent.
@@ -289,7 +301,8 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Proof-of-work challenge gate: SHA-256 solver in a Web Worker (off-thread, flat-out), HMAC session token, themeable page, no-JS fallback
 - [x] Browser-hint and request-rate (velocity) suspicion signals
 - [x] TLS client fingerprinting (coarse, logged as `tls_fp`; `deny.tls_fingerprints`)
-- [ ] Bundled AI-crawler IP ranges, plus a verified-good-bot check
+- [x] Verified AI agents via Web Bot Auth (RFC 9421 signatures) — reverse-DNS good-bot verification still to come
+- [ ] Bundled AI-crawler IP ranges, plus reverse-DNS good-bot verification
 - [x] Prometheus `/metrics` endpoint on a separate private listener
 - [x] `net/http` middleware form factor (`henbane.New` / `hb.Handler`, v0)
 - [x] Caddy module (`caddy/`, build with xcaddy) — nginx and Traefik via a ForwardAuth sidecar still to come

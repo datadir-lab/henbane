@@ -98,7 +98,11 @@ func New(cfg Config, opts ...Option) (*Henbane, error) {
 	if err != nil {
 		return nil, err
 	}
-	comps, err := assembly.Build(cfg, fed.Detectors...)
+	extra := fed.Detectors
+	if wba := assembly.WebBotAuth(cfg, o.logger); wba != nil {
+		extra = append(extra, wba)
+	}
+	comps, err := assembly.Build(cfg, extra...)
 	if err != nil {
 		return nil, err
 	}

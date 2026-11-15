@@ -68,6 +68,10 @@ func (v requestView) Header(name string) string { return v.r.Header.Get(name) }
 // otherwise).
 func (v requestView) TLSFingerprint() string { return tlsfp.FromContext(v.r.Context()) }
 
+// Host exposes the request authority (for RFC 9421 @authority); the Web Bot Auth
+// detector reads it through an optional interface.
+func (v requestView) Host() string { return v.r.Host }
+
 // Handler runs the decision pipeline and dispatches each verdict. An allowed
 // request is served by origin — the upstream reverse proxy for the standalone
 // form factor, or (via Wrap) the host application for the middleware form
