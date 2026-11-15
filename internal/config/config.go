@@ -113,6 +113,18 @@ type Sidecar struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// Scoring enables the soft-signal fusion layer. Individually-ambiguous signals
+// (a browser User-Agent that omits headers a real browser sends, HTTP/1.1 from a
+// client claiming a modern browser) each contribute points; the accumulated
+// total escalates the tier to Suspect at SuspectAt (→ challenge) and Confirmed at
+// ConfirmAt (→ tarpit). It turns weak evidence into a confident classification
+// without any single check over-firing. Thresholds default to 2 and 4.
+type Scoring struct {
+	Enabled   bool `yaml:"enabled"`
+	SuspectAt int  `yaml:"suspect_threshold"` // 0 => default 2
+	ConfirmAt int  `yaml:"confirm_threshold"` // 0 => default 4
+}
+
 // WebBotAuth configures verification of Web Bot Auth signed agents (RFC 9421 /
 // draft-meunier-web-bot-auth). When enabled, a request carrying a valid Ed25519
 // signature from a key in one of the configured agent Directories is classified
@@ -170,6 +182,7 @@ type Config struct {
 	VerifiedBots   VerifiedBots `yaml:"verified_bots"`
 	AICrawlers     AICrawlers   `yaml:"verified_ai_crawlers"`
 	Sidecar        Sidecar      `yaml:"sidecar"`
+	Scoring        Scoring      `yaml:"scoring"`
 }
 
 // FederationRefresh parses Federation.Refresh, defaulting to 1h; must be positive.
@@ -473,6 +486,18 @@ func Validate(cfg Config) error {
 	if cfg.AICrawlers.Enabled {
 		if err := validateSpoofTier("verified_ai_crawlers.spoof_tier", cfg.AICrawlers.SpoofTier, cfg.PoW.Mode); err != nil {
 			return err
+		}
+	}
+	if cfg.Scoring.Enabled {
+		if cfg.Scoring.SuspectAt < 0 || cfg.Scoring.ConfirmAt < 0 {
+			return fmt.Errorf("scoring thresholds must be non-negative")
+		}
+		if cfg.Scoring.SuspectAt > 0 && cfg.Scoring.ConfirmAt > 0 && cfg.Scoring.ConfirmAt < cfg.Scoring.SuspectAt {
+			return fmt.Errorf("scoring.confirm_threshold (%d) must be >= suspect_threshold (%d)", cfg.Scoring.ConfirmAt, cfg.Scoring.SuspectAt)
+		}
+		// A scored-Suspect client is challenged, so the PoW gate must be active.
+		if cfg.PoW.Mode != "suspect" && cfg.PoW.Mode != "all" {
+			return fmt.Errorf("scoring requires pow.mode suspect or all (a scored-Suspect client is challenged)")
 		}
 	}
 	return nil
