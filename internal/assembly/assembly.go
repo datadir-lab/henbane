@@ -21,6 +21,7 @@ import (
 	"github.com/datadir-lab/henbane/internal/config"
 	"github.com/datadir-lab/henbane/internal/core"
 	"github.com/datadir-lab/henbane/internal/detect/browserhint"
+	"github.com/datadir-lab/henbane/internal/detect/crawlerips"
 	"github.com/datadir-lab/henbane/internal/detect/denylist"
 	"github.com/datadir-lab/henbane/internal/detect/goodbot"
 	"github.com/datadir-lab/henbane/internal/detect/honeypot"
@@ -201,29 +202,43 @@ func Build(cfg config.Config, extra ...ports.Detector) (Components, error) {
 	}, nil
 }
 
-// buildVerifiers builds the engine's verifiers (currently the good-bot FCrDNS
-// verifier) from config.
+// buildVerifiers builds the engine's good-bot verifiers from config: the FCrDNS
+// search-crawler verifier and the published-IP-range AI-crawler verifier. Each
+// is independent and off by default.
 func buildVerifiers(cfg config.Config) []ports.Verifier {
-	if !cfg.VerifiedBots.Enabled {
-		return nil
-	}
-	crawlers := goodbot.Defaults()
-	if len(cfg.VerifiedBots.Crawlers) > 0 {
-		crawlers = crawlers[:0]
-		for _, c := range cfg.VerifiedBots.Crawlers {
-			crawlers = append(crawlers, goodbot.Crawler{Name: c.Name, UA: c.UA, Domains: c.Domains})
+	var vs []ports.Verifier
+	if cfg.VerifiedBots.Enabled {
+		crawlers := goodbot.Defaults()
+		if len(cfg.VerifiedBots.Crawlers) > 0 {
+			crawlers = crawlers[:0]
+			for _, c := range cfg.VerifiedBots.Crawlers {
+				crawlers = append(crawlers, goodbot.Crawler{Name: c.Name, UA: c.UA, Domains: c.Domains})
+			}
 		}
+		spoofTier, blockSpoof := parseSpoofTier(cfg.VerifiedBots.SpoofTier)
+		vs = append(vs, goodbot.New(crawlers, spoofTier, blockSpoof))
 	}
-	spoofTier, blockSpoof := ports.TierBlocked, true
-	switch cfg.VerifiedBots.SpoofTier {
-	case "", "off":
-		blockSpoof = false
+	if cfg.AICrawlers.Enabled {
+		spoofTier, blockSpoof := parseSpoofTier(cfg.AICrawlers.SpoofTier)
+		vs = append(vs, crawlerips.New(crawlerips.Defaults(), spoofTier, blockSpoof))
+	}
+	return vs
+}
+
+// parseSpoofTier maps a verifier's spoof_tier config value to the tier a spoofer
+// is forced to and whether spoofers are acted on at all ("" or "off" => the
+// verifier only allows verified good bots and gives no opinion on spoofers).
+func parseSpoofTier(s string) (ports.Tier, bool) {
+	switch s {
 	case "suspect":
-		spoofTier = ports.TierSuspect
+		return ports.TierSuspect, true
 	case "confirmed":
-		spoofTier = ports.TierConfirmed
+		return ports.TierConfirmed, true
+	case "block":
+		return ports.TierBlocked, true
+	default: // "" or "off"
+		return ports.TierBlocked, false
 	}
-	return []ports.Verifier{goodbot.New(crawlers, spoofTier, blockSpoof)}
 }
 
 // buildBomb constructs the decompression-bomb response from config, reusing the
