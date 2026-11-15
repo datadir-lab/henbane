@@ -72,6 +72,29 @@ docker run -p 8080:8080 ghcr.io/datadir-lab/henbane --upstream http://host.docke
 **Binaries:** download the archive for your platform from the
 [latest release](https://github.com/datadir-lab/henbane/releases/latest), then verify it (below).
 
+## Embed in your Go app
+
+Henbane is also an embeddable `net/http` middleware — the same engine the CLI runs, wrapping your own handlers instead of a reverse-proxy upstream:
+
+```go
+import "github.com/datadir-lab/henbane"
+
+var cfg henbane.Config          // zero value = fully passive; set fields as needed
+cfg.PoW.Mode = "all"            // e.g. challenge everyone
+cfg.Poison.Strategy = "splice"
+
+hb, err := henbane.New(cfg, henbane.WithLogger(logger))
+if err != nil {
+    log.Fatal(err)
+}
+
+mux.Handle("/", hb.Handler(app))           // net/http
+// r.Use(hb.Handler)                        // chi / alice — Handler is func(http.Handler) http.Handler
+adminMux.Handle("/metrics", hb.MetricsHandler())
+```
+
+Allowed requests fall through to your handler; suspect/confirmed/blocked requests are challenged, tarpitted, or blocked first. Build **one** `*Henbane` and reuse it across routes — it holds the shared protection state. The package is **v0/experimental** (the API may change before a tagged 1.0).
+
 ## Configuration
 
 Zero-config works: a single `--upstream` passes all traffic through. For anything more, point `--config` at a YAML file. Every key below is one henbane reads today.
@@ -218,7 +241,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [ ] Bundled AI-crawler IP ranges, plus a verified-good-bot check
 - [ ] Rate-based suspicion
 - [x] Prometheus `/metrics` endpoint on a separate private listener
-- [ ] `net/http` middleware form factor
+- [x] `net/http` middleware form factor (`henbane.New` / `hb.Handler`, v0)
 - [ ] Caddy module, with nginx and Traefik via a ForwardAuth sidecar
 - [ ] Federated reporter seam for a shared crawler denylist
 
