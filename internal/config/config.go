@@ -90,6 +90,18 @@ type VerifiedBots struct {
 	Crawlers  []Crawler `yaml:"crawlers"`   // optional; overrides the built-in set
 }
 
+// AICrawlers configures verification of AI crawlers by their published IP ranges.
+// GPTBot/ChatGPT-User/OAI-SearchBot, the ClaudeBot family, and PerplexityBot
+// publish the CIDRs they originate from but expose no reverse DNS, so they cannot
+// be verified by FCrDNS. A verified crawler is allowed (so you don't poison the
+// AI crawlers you want indexing you); a client that claims a crawler from an IP
+// outside its published ranges is a spoofer, acted on at SpoofTier when set. The
+// bundled range snapshot refreshes via `go generate ./internal/detect/crawlerips/...`.
+type AICrawlers struct {
+	Enabled   bool   `yaml:"enabled"`
+	SpoofTier string `yaml:"spoof_tier"` // off|suspect|confirmed|block; "" => off
+}
+
 // WebBotAuth configures verification of Web Bot Auth signed agents (RFC 9421 /
 // draft-meunier-web-bot-auth). When enabled, a request carrying a valid Ed25519
 // signature from a key in one of the configured agent Directories is classified
@@ -145,6 +157,7 @@ type Config struct {
 	TLS            TLS          `yaml:"tls"`
 	WebBotAuth     WebBotAuth   `yaml:"webbotauth"`
 	VerifiedBots   VerifiedBots `yaml:"verified_bots"`
+	AICrawlers     AICrawlers   `yaml:"verified_ai_crawlers"`
 }
 
 // FederationRefresh parses Federation.Refresh, defaulting to 1h; must be positive.
@@ -428,19 +441,33 @@ func Validate(cfg Config) error {
 		}
 	}
 	if cfg.VerifiedBots.Enabled {
-		switch cfg.VerifiedBots.SpoofTier {
-		case "", "off", "suspect", "confirmed", "block":
-		default:
-			return fmt.Errorf("verified_bots.spoof_tier %q is not one of off|suspect|confirmed|block", cfg.VerifiedBots.SpoofTier)
-		}
-		if cfg.VerifiedBots.SpoofTier == "suspect" && cfg.PoW.Mode != "suspect" && cfg.PoW.Mode != "all" {
-			return fmt.Errorf("verified_bots.spoof_tier: suspect requires pow.mode suspect or all")
+		if err := validateSpoofTier("verified_bots.spoof_tier", cfg.VerifiedBots.SpoofTier, cfg.PoW.Mode); err != nil {
+			return err
 		}
 		for _, c := range cfg.VerifiedBots.Crawlers {
 			if c.UA == "" || len(c.Domains) == 0 {
 				return fmt.Errorf("verified_bots.crawlers entry %q needs a ua and at least one domain", c.Name)
 			}
 		}
+	}
+	if cfg.AICrawlers.Enabled {
+		if err := validateSpoofTier("verified_ai_crawlers.spoof_tier", cfg.AICrawlers.SpoofTier, cfg.PoW.Mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateSpoofTier checks a good-bot verifier's spoof_tier value and its PoW
+// dependency (a "suspect" spoofer needs the PoW gate active to challenge it).
+func validateSpoofTier(field, tier, powMode string) error {
+	switch tier {
+	case "", "off", "suspect", "confirmed", "block":
+	default:
+		return fmt.Errorf("%s %q is not one of off|suspect|confirmed|block", field, tier)
+	}
+	if tier == "suspect" && powMode != "suspect" && powMode != "all" {
+		return fmt.Errorf("%s: suspect requires pow.mode suspect or all", field)
 	}
 	return nil
 }
