@@ -529,3 +529,20 @@ func TestParseAICrawlersValidation(t *testing.T) {
 		t.Error("spoof_tier suspect without pow must be rejected")
 	}
 }
+
+func TestParseScoringValidation(t *testing.T) {
+	// Scoring needs the PoW gate (a scored-Suspect client is challenged).
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nscoring:\n  enabled: true\n"); err == nil {
+		t.Error("scoring without pow must be rejected")
+	}
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  mode: all\nscoring:\n  enabled: true\n"); err != nil {
+		t.Errorf("scoring with pow.mode all should be accepted: %v", err)
+	}
+	// confirm_threshold must not be below suspect_threshold.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  mode: all\nscoring:\n  enabled: true\n  suspect_threshold: 4\n  confirm_threshold: 2\n"); err == nil {
+		t.Error("confirm_threshold below suspect_threshold must be rejected")
+	}
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  mode: all\nscoring:\n  enabled: true\n  suspect_threshold: -1\n"); err == nil {
+		t.Error("negative threshold must be rejected")
+	}
+}
