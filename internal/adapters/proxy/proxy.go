@@ -142,11 +142,6 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, origin http.Hand
 	}
 
 	verdict, events := h.engine.Decide(r.Context(), requestView{r: r, resolver: h.resolver})
-	for _, e := range events {
-		for _, s := range h.sinks {
-			s.Emit(e)
-		}
-	}
 
 	// Proof-of-work layers over the verdict: a solved token clears a challenge,
 	// and "challenge everyone" mode turns an otherwise-allowed, un-authed request
@@ -159,6 +154,15 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, origin http.Hand
 			action = ports.ActionAllow
 		case !authed && action == ports.ActionAllow && h.pow.ChallengeAll && !verdict.Allowlisted:
 			action = ports.ActionChallenge
+		}
+	}
+
+	// Emit the SERVED action (after PoW layering), so logs and metrics record what
+	// the client actually got — not the pre-layering classifier verdict.
+	for i := range events {
+		events[i].Action = action
+		for _, s := range h.sinks {
+			s.Emit(events[i])
 		}
 	}
 
