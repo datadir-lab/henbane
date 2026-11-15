@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/datadir-lab/henbane/internal/adapters/metrics"
 	"github.com/datadir-lab/henbane/internal/config"
 )
 
@@ -40,21 +41,34 @@ func main() {
 		fail2banW = f
 	}
 
-	h, err := newHandler(cfg, logger, fail2banW)
+	// The metrics registry (when enabled) is both a sink inside the handler and
+	// the source for the separate metrics listener's handler.
+	var metricsReg *metrics.Registry
+	if cfg.Metrics.Listen != "" {
+		metricsReg = metrics.New()
+	}
+
+	h, err := newHandler(cfg, logger, fail2banW, metricsReg)
 	if err != nil {
 		logger.Error("startup error", "err", err)
 		os.Exit(2)
 	}
 
-	if err := serve(cfg, h, logger); err != nil {
+	var metricsH http.Handler
+	if metricsReg != nil {
+		metricsH = metricsReg.Handler()
+	}
+
+	if err := serve(cfg, h, metricsH, logger); err != nil {
 		logger.Error("server stopped", "err", err)
 		os.Exit(1)
 	}
 }
 
-// serve runs the HTTP server until SIGINT/SIGTERM, then drains in-flight
+// serve runs the proxy server (and, when metricsH is non-nil, a separate metrics
+// server on cfg.Metrics.Listen) until SIGINT/SIGTERM, then drains in-flight
 // requests for up to 10s before returning.
-func serve(cfg config.Config, h http.Handler, logger *slog.Logger) error {
+func serve(cfg config.Config, h, metricsH http.Handler, logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -72,7 +86,7 @@ func serve(cfg config.Config, h http.Handler, logger *slog.Logger) error {
 		MaxHeaderBytes:    1 << 20, // 1 MiB
 	}
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
 		logger.Info("henbane starting", "version", version, "listen", cfg.Listen, "upstream", cfg.Upstream)
 		err := srv.ListenAndServe()
@@ -81,6 +95,25 @@ func serve(cfg config.Config, h http.Handler, logger *slog.Logger) error {
 		}
 		errCh <- err
 	}()
+
+	var msrv *http.Server
+	if metricsH != nil && cfg.Metrics.Listen != "" {
+		msrv = &http.Server{
+			Addr:              cfg.Metrics.Listen,
+			Handler:           metricsH,
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    1 << 20,
+		}
+		go func() {
+			logger.Info("metrics endpoint starting", "listen", cfg.Metrics.Listen)
+			err := msrv.ListenAndServe()
+			if errors.Is(err, http.ErrServerClosed) {
+				err = nil
+			}
+			errCh <- err
+		}()
+	}
 
 	select {
 	case err := <-errCh:
@@ -100,5 +133,8 @@ func serve(cfg config.Config, h http.Handler, logger *slog.Logger) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if msrv != nil {
+		_ = msrv.Shutdown(shutdownCtx) // best-effort; the proxy drain is what matters
+	}
 	return srv.Shutdown(shutdownCtx)
 }

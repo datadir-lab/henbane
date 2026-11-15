@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/datadir-lab/henbane/internal/adapters/challenge"
+	"github.com/datadir-lab/henbane/internal/adapters/metrics"
 	"github.com/datadir-lab/henbane/internal/adapters/proxy"
 	"github.com/datadir-lab/henbane/internal/adapters/sink"
 	"github.com/datadir-lab/henbane/internal/clientip"
@@ -34,8 +35,9 @@ import (
 
 // newHandler wires config into the resolver, engine, sinks, and proxy adapter.
 // If fail2banW is non-nil a fail2ban sink writing to it is added; the caller
-// owns that writer's lifecycle (opening and closing it).
-func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (http.Handler, error) {
+// owns that writer's lifecycle. If metricsReg is non-nil it is added as a sink;
+// the caller serves its Handler on the separate metrics listener.
+func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, metricsReg *metrics.Registry) (http.Handler, error) {
 	upstream, err := url.Parse(cfg.Upstream)
 	if err != nil {
 		return nil, fmt.Errorf("invalid upstream %q: %w", cfg.Upstream, err)
@@ -106,6 +108,9 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 	sinks := []ports.Sink{sink.NewSlogSink(logger)}
 	if fail2banW != nil {
 		sinks = append(sinks, sink.NewFail2banSink(fail2banW))
+	}
+	if metricsReg != nil {
+		sinks = append(sinks, metricsReg)
 	}
 
 	poisoner, err := buildPoisoner(cfg)
