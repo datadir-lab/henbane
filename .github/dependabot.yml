@@ -10,6 +10,18 @@ updates:
       prefix: build
     open-pull-requests-limit: 5
 
+  # Caddy plugin — a SEPARATE Go module (so Caddy's large dependency tree never
+  # touches the zero-dep core). Watched on its own module so its transitive deps
+  # (OpenTelemetry, the smallstep/Caddy PKI stack, compression, etc.) stay
+  # current instead of only moving on security-alert-driven updates.
+  - package-ecosystem: gomod
+    directory: "/caddy"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    open-pull-requests-limit: 10
+
   # Container base images (Dockerfile) — keeps the digest-pinned golang and
   # distroless bases current.
   - package-ecosystem: docker
