@@ -62,7 +62,10 @@ func (v requestView) Method() string            { return v.r.Method }
 func (v requestView) Path() string              { return v.r.URL.Path }
 func (v requestView) Header(name string) string { return v.r.Header.Get(name) }
 
-// Handler is the reverse-proxy HTTP handler fronting an upstream.
+// Handler runs the decision pipeline and dispatches each verdict. An allowed
+// request is served by origin — the upstream reverse proxy for the standalone
+// form factor, or (via Wrap) the host application for the middleware form
+// factor. All other verdicts are challenged, tarpitted, or blocked here.
 type Handler struct {
 	engine   ports.Engine
 	sinks    []ports.Sink
@@ -71,7 +74,7 @@ type Handler struct {
 	maze     MazeWriter
 	pow      PoW
 	bomb     Bomb
-	rp       *httputil.ReverseProxy
+	origin   http.Handler
 }
 
 // New builds a Handler proxying to upstream, consulting engine and fanning events
@@ -85,10 +88,35 @@ func New(upstream *url.URL, engine ports.Engine, sinks []ports.Sink, logger *slo
 		logger.Error("upstream proxy error", "err", err, "path", r.URL.Path)
 		w.WriteHeader(http.StatusBadGateway)
 	}
-	return &Handler{engine: engine, sinks: sinks, logger: logger, resolver: resolver, maze: maze, pow: pow, bomb: bomb, rp: rp}
+	return &Handler{engine: engine, sinks: sinks, logger: logger, resolver: resolver, maze: maze, pow: pow, bomb: bomb, origin: rp}
+}
+
+// NewGate builds a Handler with no fixed origin, meant to be used through Wrap:
+// each Wrap call supplies the "allowed" handler (the host application). It is the
+// embeddable-middleware form factor of New — same decision pipeline, but an
+// allowed request falls through to the wrapped handler instead of a reverse
+// proxy. The returned Handler's ServeHTTP responds 404 (there is no upstream);
+// callers are expected to use Wrap, not mount it directly.
+func NewGate(engine ports.Engine, sinks []ports.Sink, logger *slog.Logger, resolver *clientip.Resolver, maze MazeWriter, pow PoW, bomb Bomb) *Handler {
+	return &Handler{engine: engine, sinks: sinks, logger: logger, resolver: resolver, maze: maze, pow: pow, bomb: bomb,
+		origin: http.HandlerFunc(http.NotFound)}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.serve(w, r, h.origin)
+}
+
+// Wrap returns middleware that runs the full decision pipeline and, for an
+// allowed request, delegates to next. Every Handler returned by Wrap shares this
+// Handler's engine, PoW gate, flag stores, and sinks, so protection state is
+// consistent across all wrapped routes.
+func (h *Handler) Wrap(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.serve(w, r, next)
+	})
+}
+
+func (h *Handler) serve(w http.ResponseWriter, r *http.Request, origin http.Handler) {
 	ip := h.resolver.ClientIP(r.RemoteAddr, r.Header.Values("X-Forwarded-For"))
 
 	// The verify endpoint is PoW machinery, handled before any engine logic.
@@ -120,7 +148,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case ports.ActionAllow:
-		h.rp.ServeHTTP(w, r)
+		origin.ServeHTTP(w, r)
 	case ports.ActionChallenge:
 		if h.pow.Challenger == nil {
 			h.failClosed(w, r, verdict) // Challenge with no configured gate
