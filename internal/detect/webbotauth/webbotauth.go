@@ -78,6 +78,9 @@ func (v *Verifier) Verify(now time.Time, req Request) (origin string, ok bool) {
 	if !withinValidity(now, params) {
 		return "", false
 	}
+	if !coversAuthority(comps) {
+		return "", false // the signature must bind @authority, or it isn't tied to this host
+	}
 	sig, got := parseSignatureValue(req.Signature, label)
 	if !got {
 		return "", false
@@ -90,6 +93,18 @@ func (v *Verifier) Verify(now time.Time, req Request) (origin string, ok bool) {
 		return "", false
 	}
 	return key.Origin, true
+}
+
+// coversAuthority reports whether the signature covers the @authority component,
+// which binds it to a specific host (preventing a signature valid for one host
+// from being presented at another).
+func coversAuthority(comps []component) bool {
+	for _, c := range comps {
+		if c.name == "@authority" {
+			return true
+		}
+	}
+	return false
 }
 
 // buildBase reconstructs the RFC 9421 signature base: one line per covered
@@ -250,16 +265,41 @@ func parseSignatureValue(h, label string) ([]byte, bool) {
 	return nil, false
 }
 
+// withinValidity bounds a signature's replay window. A signature with no
+// created/expires at all is rejected (valid indefinitely is not acceptable), and
+// a signature with a created but no explicit expires is only accepted while it is
+// younger than maxAge — otherwise a captured signature without an expiry would
+// replay forever.
 func withinValidity(now time.Time, params map[string]string) bool {
-	const skew = 300 // seconds of clock tolerance
-	if c := params["created"]; c != "" {
-		if ts, err := strconv.ParseInt(c, 10, 64); err == nil && now.Unix()+skew < ts {
+	const (
+		skew   = 300          // seconds of clock tolerance
+		maxAge = 24 * 60 * 60 // max age (s) accepted for a signature lacking an explicit expiry
+	)
+	created, hasCreated := params["created"]
+	expires, hasExpires := params["expires"]
+	if created == "" && expires == "" {
+		return false // no validity window — do not trust indefinitely
+	}
+	n := now.Unix()
+	if hasCreated && created != "" {
+		ts, err := strconv.ParseInt(created, 10, 64)
+		if err != nil {
 			return false
 		}
+		if n+skew < ts {
+			return false // created in the future
+		}
+		if expires == "" && n-ts > maxAge {
+			return false // too old, and nothing else bounds the replay window
+		}
 	}
-	if e := params["expires"]; e != "" {
-		if ts, err := strconv.ParseInt(e, 10, 64); err == nil && now.Unix()-skew > ts {
+	if hasExpires && expires != "" {
+		ts, err := strconv.ParseInt(expires, 10, 64)
+		if err != nil {
 			return false
+		}
+		if n-skew > ts {
+			return false // expired
 		}
 	}
 	return true
