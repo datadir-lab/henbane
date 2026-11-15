@@ -72,6 +72,12 @@ func (v requestView) TLSFingerprint() string { return tlsfp.FromContext(v.r.Cont
 // detector reads it through an optional interface.
 func (v requestView) Host() string { return v.r.Host }
 
+// HTTPMajorVersion implements ports.ProtocolViewer: the client connection's HTTP
+// major version (1 or 2). Consistency scoring uses it to flag a client that
+// claims a modern browser but speaks HTTP/1.1. It reflects the hop into Henbane,
+// so it is only meaningful when Henbane terminates the client connection.
+func (v requestView) HTTPMajorVersion() int { return v.r.ProtoMajor }
+
 // Handler runs the decision pipeline and dispatches each verdict. An allowed
 // request is served by origin — the upstream reverse proxy for the standalone
 // form factor, or (via Wrap) the host application for the middleware form
