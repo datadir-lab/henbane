@@ -50,9 +50,12 @@ build; this is the deployment-side seam.
   block-everyone injection), **hard entry cap** (`max_entries`), **bounded body**
   (32 MiB read limit), and **fail-safe** — any fetch/parse error keeps the last
   good set, never block-all or allow-all.
-- **Lifecycle.** The refresher is a background task returned from `newHandler` and
-  run by `serve` under the shutdown context. v1 is CLI-wired; the library/Caddy
-  get the detector but not the refresher (a lifecycle hook is follow-up).
+- **Lifecycle.** Federation (consumer detector + reporter sink + their background
+  tasks) is assembled once by `assembly.Federation`, shared by the CLI and the
+  library. The CLI runs the tasks in `serve` under the shutdown context; the
+  library exposes `Henbane.Start(ctx)` (idempotent) and the Caddy module calls it
+  in `Provision` under the module context. Without Start the detector is present
+  but passive (empty set) — safe.
 
 ## Reporter (next PR)
 
@@ -76,4 +79,4 @@ An asynchronous sink that contributes confirmed detections to `federation.report
 ## Non-goals (v1)
 
 - No STIX/TAXII (line-based + JSON only); no client-side curation (the control
-  plane curates); no library/Caddy background-task lifecycle yet.
+  plane curates).

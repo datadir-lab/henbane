@@ -93,7 +93,7 @@ mux.Handle("/", hb.Handler(app))           // net/http
 adminMux.Handle("/metrics", hb.MetricsHandler())
 ```
 
-Allowed requests fall through to your handler; suspect/confirmed/blocked requests are challenged, tarpitted, or blocked first. Build **one** `*Henbane` and reuse it across routes — it holds the shared protection state. The package is **v0/experimental** (the API may change before a tagged 1.0).
+Allowed requests fall through to your handler; suspect/confirmed/blocked requests are challenged, tarpitted, or blocked first. Build **one** `*Henbane` and reuse it across routes — it holds the shared protection state. If you configure [federation](#federation), call `hb.Start(ctx)` once with a context tied to your server's lifetime to activate its background tasks (feed refresh + reporting); cancelling the context stops them. The package is **v0/experimental** (the API may change before a tagged 1.0).
 
 ### Caddy plugin
 
