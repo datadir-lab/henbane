@@ -12,6 +12,7 @@ import (
 
 	"github.com/datadir-lab/henbane/internal/clientip"
 	"github.com/datadir-lab/henbane/internal/ports"
+	"github.com/datadir-lab/henbane/internal/tlsfp"
 )
 
 // MazeWriter writes a labyrinth page for a request path.
@@ -61,6 +62,11 @@ func (v requestView) UserAgent() string         { return v.r.UserAgent() }
 func (v requestView) Method() string            { return v.r.Method }
 func (v requestView) Path() string              { return v.r.URL.Path }
 func (v requestView) Header(name string) string { return v.r.Header.Get(name) }
+
+// TLSFingerprint implements ports.TLSFingerprinter: the client's coarse TLS
+// fingerprint, captured during the handshake when Henbane terminates TLS (""
+// otherwise).
+func (v requestView) TLSFingerprint() string { return tlsfp.FromContext(v.r.Context()) }
 
 // Handler runs the decision pipeline and dispatches each verdict. An allowed
 // request is served by origin — the upstream reverse proxy for the standalone
