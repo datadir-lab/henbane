@@ -12,7 +12,8 @@ var _ ports.Scorer = (*Scorer)(nil)
 type view struct {
 	ua      string
 	headers map[string]string
-	proto   int // 0 = don't implement ProtocolViewer
+	proto   int    // 0 = don't implement ProtocolViewer
+	tlsfp   string // "" = Henbane did not terminate TLS (behind a proxy)
 }
 
 func (v view) IP() netip.Addr    { return netip.Addr{} }
@@ -23,10 +24,13 @@ func (v view) Header(n string) string {
 	return v.headers[n]
 }
 
-// protoView adds the optional ProtocolViewer capability.
+// protoView adds the optional ProtocolViewer + TLSFingerprinter capabilities,
+// as the production requestView does. The protocol signal only applies when a
+// TLS fingerprint proves Henbane terminated the client's TLS directly.
 type protoView struct{ view }
 
-func (v protoView) HTTPMajorVersion() int { return v.view.proto }
+func (v protoView) HTTPMajorVersion() int  { return v.view.proto }
+func (v protoView) TLSFingerprint() string { return v.view.tlsfp }
 
 const chromeUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
 
@@ -88,20 +92,40 @@ func TestSingleMissIsSuspectLevel(t *testing.T) {
 func TestLegacyHTTPAddsPoints(t *testing.T) {
 	s := New(DefaultWeights())
 	h := realBrowserHeaders()
-	// Everything present but speaking HTTP/1.1 while claiming modern Chrome.
-	rs := s.Score(protoView{view{ua: chromeUA, headers: h, proto: 1}})
+	// Everything present but speaking HTTP/1.1 while claiming modern Chrome, and
+	// Henbane terminated TLS itself (non-empty fp), so the version is the client's.
+	rs := s.Score(protoView{view{ua: chromeUA, headers: h, proto: 1, tlsfp: "abc123"}})
 	if total(rs) != DefaultWeights().LegacyHTTP {
-		t.Errorf("HTTP/1.1 while claiming a browser should add the legacy-http weight, got %d (%v)", total(rs), rs)
+		t.Errorf("HTTP/1.1 while claiming a browser (direct TLS) should add the legacy-http weight, got %d (%v)", total(rs), rs)
+	}
+}
+
+func TestLegacyHTTPSkippedBehindProxy(t *testing.T) {
+	s := New(DefaultWeights())
+	h := realBrowserHeaders()
+	// HTTP/1.1 but NO TLS fingerprint (Henbane is behind a proxy): r.ProtoMajor is
+	// the proxy→Henbane hop, not the client's, so the signal must NOT fire — else
+	// every real browser behind an HTTP/1.1-upstream CDN would be flagged.
+	if rs := s.Score(protoView{view{ua: chromeUA, headers: h, proto: 1, tlsfp: ""}}); total(rs) != 0 {
+		t.Errorf("behind a proxy (no TLS termination) the protocol signal must be skipped, got %v", rs)
 	}
 }
 
 func TestLegacyHTTPSkippedWithoutProtocolView(t *testing.T) {
 	s := New(DefaultWeights())
 	h := realBrowserHeaders()
-	// Same headers but the view does NOT implement ProtocolViewer (e.g. behind a
-	// proxy): the protocol signal must not fire.
+	// Same headers but the view does NOT implement ProtocolViewer: skipped.
 	if rs := s.Score(view{ua: chromeUA, headers: h}); total(rs) != 0 {
 		t.Errorf("without a ProtocolViewer the protocol signal must be skipped, got %v", rs)
+	}
+}
+
+func TestCaseInsensitiveEncoding(t *testing.T) {
+	s := New(DefaultWeights())
+	h := realBrowserHeaders()
+	h["Accept-Encoding"] = "GZIP" // upper case is still valid gzip (RFC 7231)
+	if rs := s.Score(protoView{view{ua: chromeUA, headers: h, proto: 2, tlsfp: "x"}}); total(rs) != 0 {
+		t.Errorf("an upper-case GZIP must not be flagged as missing modern encoding, got %v", rs)
 	}
 }
 

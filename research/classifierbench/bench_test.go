@@ -124,6 +124,11 @@ func (r req) Path() string           { return "/article/42" }
 func (r req) Header(n string) string { return r.p.headers[n] }
 func (r req) HTTPMajorVersion() int  { return r.p.proto }
 
+// TLSFingerprint makes the corpus represent the direct-TLS-termination scenario,
+// where the HTTP-version (legacy_http) signal is valid. Behind a proxy that
+// signal is correctly suppressed (see internal/detect/consistency).
+func (r req) TLSFingerprint() string { return "corpus-direct-tls" }
+
 // decide runs the scoring engine with the given weights/thresholds and returns
 // the verdict tier per profile.
 func decide(t *testing.T, w consistency.Weights, suspectAt, confirmAt int) map[string]ports.Tier {
