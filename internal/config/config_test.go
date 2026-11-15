@@ -201,7 +201,7 @@ func TestParsePoisonDefaultStrategy(t *testing.T) {
 }
 
 func TestParsePoisonValidStrategies(t *testing.T) {
-	for _, s := range []string{"babble", "article", "canary", "none"} {
+	for _, s := range []string{"babble", "splice", "article", "canary", "none"} {
 		body := "upstream: \"http://a:1\"\npoison:\n  strategy: \"" + s + "\"\n  salt: \"x\"\n"
 		if _, err := parsePoison(t, body); err != nil {
 			t.Errorf("strategy %q rejected: %v", s, err)
