@@ -49,8 +49,10 @@ func (Middleware) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Provision loads the configuration and builds the Henbane instance once.
-func (m *Middleware) Provision(caddy.Context) error {
+// Provision loads the configuration and builds the Henbane instance once, then
+// starts its background tasks (federation feed refresh + reporting) under the
+// module's context, which Caddy cancels on reload/shutdown.
+func (m *Middleware) Provision(ctx caddy.Context) error {
 	cfg := henbane.Config{}
 	if m.ConfigFile != "" {
 		loaded, err := henbane.LoadConfig(m.ConfigFile)
@@ -64,6 +66,7 @@ func (m *Middleware) Provision(caddy.Context) error {
 		return fmt.Errorf("henbane: %w", err)
 	}
 	m.hb = hb
+	m.hb.Start(ctx)
 	return nil
 }
 
