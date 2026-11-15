@@ -64,6 +64,13 @@ func New(gate http.Handler, verifyPath string) http.Handler {
 // the trusted front proxy (bind it to the internal network). Returns false if a
 // forwarded URI is present but unparseable, so the caller can fail closed.
 func reconstruct(r *http.Request) bool {
+	// A correct front proxy sets exactly one X-Forwarded-Uri (overwriting any
+	// client value). More than one means a proxy appended rather than overwrote
+	// and a client value may have survived — reject rather than guess which is
+	// authoritative.
+	if len(r.Header.Values("X-Forwarded-Uri")) > 1 {
+		return false
+	}
 	if raw := r.Header.Get("X-Forwarded-Uri"); raw != "" {
 		u, err := url.ParseRequestURI(raw)
 		if err != nil {
@@ -115,6 +122,9 @@ func (aw *authWriter) WriteHeader(code int) {
 	aw.wroteHeader = true
 	if code >= 200 && code < 300 && code != http.StatusNoContent {
 		code = aw.denyStatus
+		// A denied response must not carry a session cookie: defense in depth so a
+		// request mis-routed to the cookie-setting path can't leak a usable token.
+		aw.ResponseWriter.Header().Del("Set-Cookie")
 	}
 	aw.ResponseWriter.WriteHeader(code)
 }
