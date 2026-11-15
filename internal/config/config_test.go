@@ -438,3 +438,22 @@ func TestParseFederationRejectsBadReportURL(t *testing.T) {
 		t.Error("non-http report_url must be rejected")
 	}
 }
+
+func TestParseTLSRequiresBothCertAndKey(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\ntls:\n  cert: \"/c.pem\"\n"); err == nil {
+		t.Error("tls.cert without tls.key must be rejected")
+	}
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\ntls:\n  cert: \"/c.pem\"\n  key: \"/k.pem\"\n"); err != nil {
+		t.Errorf("tls.cert+key must be accepted: %v", err)
+	}
+}
+
+func TestParseDenyTLSFingerprints(t *testing.T) {
+	cfg, err := parsePoison(t, "upstream: \"http://a:1\"\ndeny:\n  tls_fingerprints: [\"de7fd8549b99c53c\", \"cafebabecafebabe\"]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Deny.TLSFingerprints) != 2 || cfg.Deny.TLSFingerprints[0] != "de7fd8549b99c53c" {
+		t.Errorf("deny.tls_fingerprints = %v", cfg.Deny.TLSFingerprints)
+	}
+}
