@@ -49,6 +49,17 @@ type Bomb struct {
 	DecompressedCapMB int    `yaml:"decompressed_cap_mb"` // 0 => default 64; clamped to [1,1024] downstream
 }
 
+// Velocity configures the request-rate detector. When enabled, a client IP that
+// exceeds Requests within Window is classified at Tier. The counter keys on the
+// resolved client IP and is hard-bounded at MaxTracked entries.
+type Velocity struct {
+	Enabled    bool   `yaml:"enabled"`
+	Requests   int    `yaml:"requests"`    // per-window limit before firing; 0 => default 600
+	Window     string `yaml:"window"`      // e.g. "1m"; default 1m
+	Tier       string `yaml:"tier"`        // suspect|confirmed; "" => suspect
+	MaxTracked int    `yaml:"max_tracked"` // hard cap on tracked IPs; 0 => default 100000
+}
+
 // PoW configures the proof-of-work challenge gate.
 type PoW struct {
 	Mode           string `yaml:"mode"`            // off|suspect|all; "" => off
@@ -71,6 +82,7 @@ type Config struct {
 	PoW            PoW       `yaml:"pow"`
 	Bomb           Bomb      `yaml:"bomb"`
 	Robots         Robots    `yaml:"robots"`
+	Velocity       Velocity  `yaml:"velocity"`
 }
 
 // PoWChallengeTTL parses PoW.ChallengeTTL, defaulting to 5m; must be positive.
@@ -81,6 +93,11 @@ func (c Config) PoWChallengeTTL() (time.Duration, error) {
 // PoWAccessTTL parses PoW.AccessTTL, defaulting to 1h; must be positive.
 func (c Config) PoWAccessTTL() (time.Duration, error) {
 	return parseTTL(c.PoW.AccessTTL, time.Hour, "pow.access_ttl")
+}
+
+// VelocityWindow parses Velocity.Window, defaulting to 1m; must be positive.
+func (c Config) VelocityWindow() (time.Duration, error) {
+	return parseTTL(c.Velocity.Window, time.Minute, "velocity.window")
 }
 
 func parseTTL(s string, def time.Duration, name string) (time.Duration, error) {
@@ -260,6 +277,32 @@ func Parse(args []string) (Config, error) {
 			if !strings.HasPrefix(p, "/") {
 				return Config{}, fmt.Errorf("robots.disallow entry %q must be an absolute path", p)
 			}
+		}
+	}
+	if cfg.Velocity.Enabled {
+		tier := cfg.Velocity.Tier
+		switch tier {
+		case "", "suspect", "confirmed":
+		default:
+			return Config{}, fmt.Errorf("velocity.tier %q is not one of suspect|confirmed", tier)
+		}
+		if tier == "" {
+			tier = "suspect"
+		}
+		// A suspect verdict maps to a proof-of-work challenge; without a gate the
+		// proxy fails that request closed (500). Reject the combination rather
+		// than silently 500 real traffic.
+		if tier == "suspect" && cfg.PoW.Mode != "suspect" && cfg.PoW.Mode != "all" {
+			return Config{}, fmt.Errorf("velocity.tier: suspect requires pow.mode suspect or all (a suspect verdict needs a proof-of-work gate); enable pow or use velocity.tier: confirmed")
+		}
+		if cfg.Velocity.Requests < 0 {
+			return Config{}, fmt.Errorf("velocity.requests must be >= 0")
+		}
+		if cfg.Velocity.MaxTracked < 0 {
+			return Config{}, fmt.Errorf("velocity.max_tracked must be >= 0")
+		}
+		if _, err := cfg.VelocityWindow(); err != nil {
+			return Config{}, err
 		}
 	}
 	return cfg, nil
