@@ -90,6 +90,56 @@ func TestMetricsRegistryCountsThroughHandler(t *testing.T) {
 	}
 }
 
+func TestFederationReporterPostsConfirmed(t *testing.T) {
+	reported := make(chan string, 4)
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, _ := io.ReadAll(req.Body)
+		reported <- string(body)
+	}))
+	defer feed.Close()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "UP")
+	}))
+	defer upstream.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	var cfg config.Config
+	cfg.Upstream = upstream.URL
+	cfg.Honeypot.Enabled = true
+	cfg.Honeypot.Path = "/trap"
+	cfg.Honeypot.MaxFlagged = 100
+	cfg.Federation.ReportURL = feed.URL
+	cfg.Federation.DeploymentID = "site-7"
+
+	h, background, err := newHandler(cfg, logger, nil, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	if len(background) != 1 {
+		t.Fatalf("federation reporter should yield 1 background task, got %d", len(background))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go background[0](ctx)
+
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	// Trip the trap → a Confirmed detection → enqueued in the reporter.
+	if r, _ := http.Get(front.URL + "/trap/x"); r != nil {
+		r.Body.Close()
+	}
+	cancel() // shutdown drains the buffer and makes a final flush → POST
+
+	select {
+	case body := <-reported:
+		if !strings.Contains(body, "site-7") || !strings.Contains(body, "honeypot") || !strings.Contains(body, "confirmed") {
+			t.Errorf("report body missing expected fields: %s", body)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("reporter did not POST the confirmed detection")
+	}
+}
+
 func TestNewHandlerProxiesUpstream(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "ok from upstream")

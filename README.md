@@ -180,9 +180,12 @@ metrics:
                                  # the same address as `listen`.
 
 federation:
-  feed_url: ""                   # remote denylist to pull (http/https); empty = off
+  feed_url: ""                   # consumer: remote denylist to pull (http/https); empty = off
   refresh: "1h"                  # how often to re-fetch the feed
   max_entries: 1000000           # hard cap on fetched prefixes
+  report_url: ""                 # reporter: POST confirmed-bad detections here; empty = off
+  report_token: ""               # optional bearer token for the report endpoint
+  deployment_id: ""              # stable ID so the feed can require cross-reporter consensus
 
 sinks:
   fail2ban:
@@ -250,9 +253,13 @@ This is where the tarpit's value becomes visible: the `allow` count versus the `
 
 ## Federation
 
-A bot caught at one site should be known at the next. Set `federation.feed_url` and Henbane pulls a shared bad-IP blocklist on an interval and blocks listed clients — point it at any threat feed (a public bad-bot list, your own, or a future Poison Garden). This is the **consumer** half; a **reporter** that contributes your own confirmed detections back is designed around GDPR legitimate interest (Recital 49) with strict data minimisation, and ships separately.
+A bot caught at one site should be known at the next. Two opt-in halves:
 
-The feed is operator-chosen but treated as untrusted input: entries are parsed strictly and capped, over-broad prefixes are rejected (a compromised feed cannot inject `0.0.0.0/0` to block everyone), the response body is bounded, and a failed fetch **keeps the last good list** — it never fails to block-all or allow-all. Off by default.
+**Consume** — set `federation.feed_url` and Henbane pulls a shared bad-IP blocklist on an interval and blocks listed clients. Point it at any threat feed (a public bad-bot list, your own, or a future Poison Garden). The feed is operator-chosen but treated as untrusted input: entries are parsed strictly and capped, over-broad prefixes are rejected (a compromised feed cannot inject `0.0.0.0/0` to block everyone), the body is bounded, and a failed fetch **keeps the last good list** — never block-all or allow-all.
+
+**Report** — set `federation.report_url` and Henbane contributes *its own* confirmed detections back. It is async and bounded (it never blocks or back-pressures the request path), and privacy-minimised by construction: **only `Confirmed`/`Blocked` tiers** are reported (never a human's `Pass`/`Suspect` IP), and only `{ip, signal, tier, timestamp}` — no logs, User-Agent, path, or payload. The basis is GDPR **legitimate interest** (Recital 49, network & information security); see the [Legitimate Interests Assessment](docs/legitimate-interest-assessment.md). IPs are sent raw rather than hashed, because a hashed IP is still personal data and can't be matched across reporters for the consensus that curates the feed.
+
+Both halves are off by default.
 
 ## Dependencies
 
@@ -273,7 +280,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Prometheus `/metrics` endpoint on a separate private listener
 - [x] `net/http` middleware form factor (`henbane.New` / `hb.Handler`, v0)
 - [x] Caddy module (`caddy/`, build with xcaddy) — nginx and Traefik via a ForwardAuth sidecar still to come
-- [x] Federation consumer: pull a shared bad-IP denylist feed (reporter half next)
+- [x] Federation: pull a shared bad-IP denylist feed, and report your own confirmed detections back
 
 ## Build and test
 
