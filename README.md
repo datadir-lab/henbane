@@ -95,6 +95,25 @@ adminMux.Handle("/metrics", hb.MetricsHandler())
 
 Allowed requests fall through to your handler; suspect/confirmed/blocked requests are challenged, tarpitted, or blocked first. Build **one** `*Henbane` and reuse it across routes — it holds the shared protection state. The package is **v0/experimental** (the API may change before a tagged 1.0).
 
+### Caddy plugin
+
+Henbane is also a [Caddy v2](https://caddyserver.com) HTTP handler module, in its own Go module (`caddy/`) so Caddy's large dependency tree never touches the zero-dependency core. Build it into Caddy with [xcaddy](https://github.com/caddyserver/xcaddy):
+
+```bash
+xcaddy build --with github.com/datadir-lab/henbane/caddy
+# before the first tagged release, build against a local checkout:
+# xcaddy build --with github.com/datadir-lab/henbane/caddy=./henbane/caddy
+```
+
+```caddyfile
+example.com {
+    henbane /etc/henbane.yaml   # same YAML the standalone binary reads
+    reverse_proxy localhost:8081
+}
+```
+
+Requests Henbane allows continue down the handler chain (to `reverse_proxy` here); the rest are challenged, tarpitted, or blocked first. With no config file the directive is passive.
+
 ## Configuration
 
 Zero-config works: a single `--upstream` passes all traffic through. For anything more, point `--config` at a YAML file. Every key below is one henbane reads today.
@@ -242,7 +261,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [ ] Rate-based suspicion
 - [x] Prometheus `/metrics` endpoint on a separate private listener
 - [x] `net/http` middleware form factor (`henbane.New` / `hb.Handler`, v0)
-- [ ] Caddy module, with nginx and Traefik via a ForwardAuth sidecar
+- [x] Caddy module (`caddy/`, build with xcaddy) — nginx and Traefik via a ForwardAuth sidecar still to come
 - [ ] Federated reporter seam for a shared crawler denylist
 
 ## Build and test
