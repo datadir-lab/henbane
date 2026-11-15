@@ -19,6 +19,7 @@ import (
 	"github.com/datadir-lab/henbane/internal/detect/browserhint"
 	"github.com/datadir-lab/henbane/internal/detect/denylist"
 	"github.com/datadir-lab/henbane/internal/detect/honeypot"
+	"github.com/datadir-lab/henbane/internal/detect/velocity"
 	"github.com/datadir-lab/henbane/internal/flagstore"
 	"github.com/datadir-lab/henbane/internal/generate/bomb"
 	"github.com/datadir-lab/henbane/internal/generate/labyrinth"
@@ -76,6 +77,26 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer) (ht
 	// Suspect verdict has no handler, so the signal stays disabled.
 	if cfg.PoW.Mode == "suspect" {
 		detectors = append(detectors, browserhint.New())
+	}
+
+	if cfg.Velocity.Enabled {
+		tier := ports.TierSuspect
+		if cfg.Velocity.Tier == "confirmed" {
+			tier = ports.TierConfirmed
+		}
+		window, err := cfg.VelocityWindow()
+		if err != nil {
+			return nil, err
+		}
+		requests := cfg.Velocity.Requests
+		if requests == 0 {
+			requests = 600
+		}
+		maxTracked := cfg.Velocity.MaxTracked
+		if maxTracked == 0 {
+			maxTracked = 100000
+		}
+		detectors = append(detectors, velocity.New(requests, window, maxTracked, tier))
 	}
 
 	engine := core.NewEngine(detectors...)
