@@ -123,6 +123,10 @@ Zero-config works: a single `--upstream` passes all traffic through. For anythin
 listen: ":8080"
 upstream: "http://127.0.0.1:8081"
 
+tls:                      # terminate TLS here to enable TLS fingerprinting
+  cert: ""                # PEM cert file; empty = plain HTTP (TLS terminated upstream)
+  key: ""                 # PEM key file
+
 # Trust X-Forwarded-For only from these source ranges (your proxy or load balancer).
 # Leave empty if henbane faces the internet directly, so the denylist cannot be spoofed.
 trusted_proxies:
@@ -135,6 +139,8 @@ deny:
     - "GPTBot"
     - "CCBot"
     - "ClaudeBot"
+  tls_fingerprints:       # coarse TLS fingerprints (see logs; requires tls.cert/key)
+    - "de7fd8549b99c53c"
 
 honeypot:
   enabled: true
@@ -261,6 +267,12 @@ A bot caught at one site should be known at the next. Two opt-in halves:
 
 Both halves are off by default.
 
+## TLS fingerprinting
+
+When Henbane terminates TLS itself (set `tls.cert`/`tls.key`), it fingerprints each client's TLS handshake — a coarse, stable hash of the cipher suites, groups, point formats, ALPN, signature schemes, and versions the client offers, with GREASE filtered out. Automated stacks (Go's `net/http`, Python, curl, …) present different TLS characteristics than real browsers, so the fingerprint is a signal that survives a client lying in its User-Agent.
+
+The fingerprint appears in the decision log as `tls_fp`, so you can watch your traffic and then block the stacks you've confirmed are bots via `deny.tls_fingerprints` (a `403`, like the IP and UA denylists). Because the fingerprint is *coarse*, it is shared by every client using the same TLS library — list only fingerprints you've confirmed, exactly as with CIDR and UA denylists. It is unavailable (empty) when a proxy or CDN terminates TLS in front of Henbane; this is a direct-exposure feature. A full JA3 is not possible from Go's standard library, which hides the raw ClientHello.
+
 ## Dependencies
 
 Henbane is Go, stdlib-first by policy. The only third-party runtime import is `gopkg.in/yaml.v3` for config. A CI guard fails the build if anything outside that allowlist appears in `go.mod`. A tool that fights surveillance should not become a supply-chain risk of its own.
@@ -275,8 +287,9 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Labyrinth: an endless tree of generated links that wastes crawl budget
 - [x] Poison: babble, splice, article, and canary generators fill the maze
 - [x] Proof-of-work challenge gate: SHA-256 solver in a Web Worker (off-thread, flat-out), HMAC session token, themeable page, no-JS fallback
+- [x] Browser-hint and request-rate (velocity) suspicion signals
+- [x] TLS client fingerprinting (coarse, logged as `tls_fp`; `deny.tls_fingerprints`)
 - [ ] Bundled AI-crawler IP ranges, plus a verified-good-bot check
-- [ ] Rate-based suspicion
 - [x] Prometheus `/metrics` endpoint on a separate private listener
 - [x] `net/http` middleware form factor (`henbane.New` / `hb.Handler`, v0)
 - [x] Caddy module (`caddy/`, build with xcaddy) — nginx and Traefik via a ForwardAuth sidecar still to come

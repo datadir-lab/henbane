@@ -104,6 +104,9 @@ func Build(cfg config.Config, extra ...ports.Detector) (Components, error) {
 	if len(cfg.Deny.UserAgents) > 0 {
 		detectors = append(detectors, denylist.NewUA(cfg.Deny.UserAgents))
 	}
+	if len(cfg.Deny.TLSFingerprints) > 0 {
+		detectors = append(detectors, denylist.NewTLSFP(cfg.Deny.TLSFingerprints))
+	}
 	if cfg.Honeypot.Enabled {
 		ttl, err := cfg.HoneypotTTL()
 		if err != nil {
