@@ -168,6 +168,17 @@ Separating them requires a *different layer* — TLS/HTTP-2 fingerprinting (refs
 [3][7][9]) or behaviour (ref [8]) — which is why those are the tracked next
 signals, and why deception handles the ones no signal can block.
 
+**Quantified evasion floor.** The checks are presence-only, so the evasion cost is
+a fixed, tiny number of header lines. A default `python-requests`/`httpx` client
+(which already sends `Accept: */*` and `Accept-Encoding: gzip`) needs only **two**
+added headers — `Sec-Fetch-Site` and `Accept-Language` — to score 0 and be allowed
+outright, HTTP version irrelevant. Setting all four presence headers caps the
+residual at the single legacy-http point (below the Suspect threshold). So this
+layer is a filter for *low-effort* bots, not a wall; its value is catching the
+large volume of scrapers that haven't bothered, not the ones that have. (An
+adversarial scorer audit established this floor; it is why the layer feeds a
+challenge and the deception stage, not a block.)
+
 ---
 
 ## 3. Signal-coverage matrix
@@ -189,8 +200,9 @@ figures are vendor self-reported and not independently audited.
 
 On fingerprint depth / ML Henbane sits with the open-source field, below the
 commercial systems. On good-bot verification, PoW, tarpit, poison, and federation
-it is at or ahead of the whole open-source field — the only open-source entry
-pairing a full good-bot-verification triad with content poisoning.
+it is at or ahead of the open-source tools in this comparison — the only one here
+pairing a full good-bot-verification triad with content poisoning (not a claim to
+have surveyed every open-source project).
 
 ---
 
@@ -208,11 +220,15 @@ No single network-layer signal is a wall:
   of Anubis sites for cents, and the cost lands on every low-end human device.
 - **Headless real browsers** defeat header, TLS, and increasingly behavioural
   signals.
-- Academic consensus (refs [8][9]): TLS/header features classify *simple* bots
-  well but "cannot distinguish humans from bots using full-stack emulation";
-  behaviour is the most evasion-resistant layer; the strongest systems **fuse**
-  layers and look for **cross-layer contradiction**. Henbane's consistency scorer
-  is a small, cheap instance of that contradiction idea at the header layer.
+- The literature supports the direction without over-claiming: TLS/JA4 features
+  classify *simple* bots at high accuracy in the lab (ref [9], AUC 0.998) but
+  full-stack-emulation / impersonation evades the network layer (refs [5][9]);
+  header/browser-dimension features are the *least* evasion-resistant and
+  behavioural features the most (ref [8]). The broader multi-layer-fingerprinting
+  practice (not ref [9], which is TLS-only) is to **fuse** layers and flag
+  **cross-layer contradiction**; Henbane's consistency scorer is a small, cheap
+  instance of that contradiction idea at the header layer. (These are paraphrases
+  of the cited findings, not verbatim quotations.)
 
 Real-world scale (ref [Imperva 2025]): automated traffic is ~51% of the web, bad
 bots ~37%, and a large and growing share is "evasive" real-browser automation —
@@ -295,7 +311,7 @@ Report 2024* (bots 31.2%); DataDome *State of Bot & Agent Security 2026* (bad bo
 [1] Althouse, *TLS Fingerprinting with JA3/JA3S*, Salesforce Eng., 2017.
 [2] `salesforce/ja3`, 2017.
 [3] `FoxIO-LLC/ja4` (JA4+), 2023.
-[4] Anderson & McGrew, *Accurate TLS Fingerprinting using Destination Context*,
+[4] Anderson & McGrew, *Accurate TLS Fingerprinting using Destination Context and Knowledge Bases*,
 arXiv:2009.01939, 2020 (fingerprint ≠ identity).
 [5] Frolov & Wustrow, *The use of TLS in Censorship Circumvention*, NDSS 2019 (uTLS).
 [6] Anderson & McGrew, *TLS Beyond the Browser*, ACM IMC 2019.

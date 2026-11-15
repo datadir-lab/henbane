@@ -202,7 +202,8 @@ func TestBaseRatePrecision(t *testing.T) {
 	for _, rate := range []float64{0.01, 0.05, 0.10, 0.30, 0.50} {
 		t.Logf("  base rate %4.0f%%:  precision %.3f", rate*100, precisionAtBaseRate(tpr, fpr, rate))
 	}
-	t.Logf("(With the measured FPR of %.2f, precision holds across base rates. The value", fpr)
-	t.Logf(" of this table is that it WOULD collapse at low base rates if the FPR were")
-	t.Logf(" non-zero — which is exactly why the legitimate-edge-case profiles matter.)")
+	t.Logf("The measured FPR of %.2f (driven by the flagged pre-Fetch-Metadata browsers) is why", fpr)
+	t.Logf("precision COLLAPSES at low base rates: at a 1%% bot rate most 'catches' are legitimate")
+	t.Logf("old browsers. This is the base-rate fallacy the balanced F1 hides — and why the raw")
+	t.Logf("consistency score drives a challenge, not a block.")
 }
