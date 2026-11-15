@@ -74,15 +74,16 @@ type Verdict struct {
 
 // Event is the structured record emitted for a decision and consumed by sinks.
 type Event struct {
-	Time        time.Time
-	IP          netip.Addr
-	UserAgent   string
-	Path        string
-	Action      Action
-	Tier        Tier
-	Signals     []Signal
-	PoWMillis   int64
-	PoisonBytes int64
+	Time           time.Time
+	IP             netip.Addr
+	UserAgent      string
+	Path           string
+	Action         Action
+	Tier           Tier
+	Signals        []Signal
+	PoWMillis      int64
+	PoisonBytes    int64
+	TLSFingerprint string
 }
 
 // RequestView is a read-only, transport-agnostic view of an inbound request.
@@ -92,6 +93,14 @@ type RequestView interface {
 	Method() string
 	Path() string
 	Header(name string) string
+}
+
+// TLSFingerprinter is an optional RequestView capability: a coarse, stable TLS
+// client fingerprint captured when Henbane terminates TLS itself. A RequestView
+// may implement it; consumers type-assert for it and treat an absent or empty
+// value as "unknown" (e.g. plain HTTP, or Henbane behind a TLS-terminating proxy).
+type TLSFingerprinter interface {
+	TLSFingerprint() string
 }
 
 // Sink consumes decision Events. Implementations must never block the request

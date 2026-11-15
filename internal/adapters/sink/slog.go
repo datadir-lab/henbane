@@ -20,13 +20,17 @@ func NewSlogSink(logger *slog.Logger) *SlogSink {
 
 // Emit logs a single structured decision record.
 func (s *SlogSink) Emit(e ports.Event) {
-	s.logger.LogAttrs(context.Background(), slog.LevelInfo, "decision",
+	attrs := []slog.Attr{
 		slog.String("action", e.Action.String()),
 		slog.String("tier", e.Tier.String()),
 		slog.String("ip", e.IP.String()),
 		slog.String("ua", e.UserAgent),
 		slog.String("path", e.Path),
-	)
+	}
+	if e.TLSFingerprint != "" {
+		attrs = append(attrs, slog.String("tls_fp", e.TLSFingerprint))
+	}
+	s.logger.LogAttrs(context.Background(), slog.LevelInfo, "decision", attrs...)
 }
 
 var _ ports.Sink = (*SlogSink)(nil)

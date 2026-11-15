@@ -87,3 +87,19 @@ func TestDecideKeepsHighestTierRegardlessOfOrder(t *testing.T) {
 		t.Errorf("tier = %v, want blocked (descending order must not downgrade)", v.Tier)
 	}
 }
+
+type fpView struct{ fakeView }
+
+func (fpView) TLSFingerprint() string { return "abcdef0123456789" }
+
+func TestDecidePopulatesTLSFingerprint(t *testing.T) {
+	_, events := NewEngine().Decide(context.Background(), fpView{})
+	if events[0].TLSFingerprint != "abcdef0123456789" {
+		t.Errorf("event TLSFingerprint = %q, want it taken from the RequestView", events[0].TLSFingerprint)
+	}
+	// A RequestView without the capability leaves it empty.
+	_, ev2 := NewEngine().Decide(context.Background(), fakeView{})
+	if ev2[0].TLSFingerprint != "" {
+		t.Errorf("non-fingerprinter view must leave TLSFingerprint empty, got %q", ev2[0].TLSFingerprint)
+	}
+}

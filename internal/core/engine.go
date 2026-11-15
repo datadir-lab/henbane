@@ -47,6 +47,9 @@ func (e *Engine) Decide(ctx context.Context, r ports.RequestView) (ports.Verdict
 		Tier:      tier,
 		Signals:   signals,
 	}
+	if f, ok := r.(ports.TLSFingerprinter); ok {
+		ev.TLSFingerprint = f.TLSFingerprint()
+	}
 	return v, []ports.Event{ev}
 }
 
