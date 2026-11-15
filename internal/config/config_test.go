@@ -457,3 +457,26 @@ func TestParseDenyTLSFingerprints(t *testing.T) {
 		t.Errorf("deny.tls_fingerprints = %v", cfg.Deny.TLSFingerprints)
 	}
 }
+
+func TestParseWebBotAuthValidation(t *testing.T) {
+	// Valid: block tier + https directory.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nwebbotauth:\n  enabled: true\n  tier: \"block\"\n  directories: [\"https://chatgpt.com\"]\n"); err != nil {
+		t.Errorf("valid webbotauth rejected: %v", err)
+	}
+	// Bad tier.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nwebbotauth:\n  enabled: true\n  tier: \"bogus\"\n"); err == nil {
+		t.Error("bad webbotauth.tier must be rejected")
+	}
+	// Non-https directory.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nwebbotauth:\n  enabled: true\n  directories: [\"http://insecure\"]\n"); err == nil {
+		t.Error("non-https directory must be rejected")
+	}
+	// suspect tier without pow.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nwebbotauth:\n  enabled: true\n  tier: \"suspect\"\n"); err == nil {
+		t.Error("webbotauth.tier suspect without pow must be rejected")
+	}
+	// Disabled: invalid sub-fields ignored.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nwebbotauth:\n  enabled: false\n  tier: \"bogus\"\n"); err != nil {
+		t.Errorf("disabled webbotauth must skip validation: %v", err)
+	}
+}
