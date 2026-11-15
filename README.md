@@ -179,6 +179,11 @@ metrics:
                                  # Served on a SEPARATE, private listener — never
                                  # the same address as `listen`.
 
+federation:
+  feed_url: ""                   # remote denylist to pull (http/https); empty = off
+  refresh: "1h"                  # how often to re-fetch the feed
+  max_entries: 1000000           # hard cap on fetched prefixes
+
 sinks:
   fail2ban:
     enabled: true
@@ -243,6 +248,12 @@ henbane_signals_total{signal="honeypot"} 61
 
 This is where the tarpit's value becomes visible: the `allow` count versus the `challenge`/`tarpit`/`block` counts is your human-to-bot ratio, and every `tarpit` is a maze page you made a crawler fetch instead of real content. The counters are aggregate — **no per-IP or per-path labels**, so they carry operational data, not user data. It is served on a **separate listener** (`metrics.listen` must differ from `listen`); bind it to a private interface so the numbers never ride the public proxy path. Off by default.
 
+## Federation
+
+A bot caught at one site should be known at the next. Set `federation.feed_url` and Henbane pulls a shared bad-IP blocklist on an interval and blocks listed clients — point it at any threat feed (a public bad-bot list, your own, or a future Poison Garden). This is the **consumer** half; a **reporter** that contributes your own confirmed detections back is designed around GDPR legitimate interest (Recital 49) with strict data minimisation, and ships separately.
+
+The feed is operator-chosen but treated as untrusted input: entries are parsed strictly and capped, over-broad prefixes are rejected (a compromised feed cannot inject `0.0.0.0/0` to block everyone), the response body is bounded, and a failed fetch **keeps the last good list** — it never fails to block-all or allow-all. Off by default.
+
 ## Dependencies
 
 Henbane is Go, stdlib-first by policy. The only third-party runtime import is `gopkg.in/yaml.v3` for config. A CI guard fails the build if anything outside that allowlist appears in `go.mod`. A tool that fights surveillance should not become a supply-chain risk of its own.
@@ -262,7 +273,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Prometheus `/metrics` endpoint on a separate private listener
 - [x] `net/http` middleware form factor (`henbane.New` / `hb.Handler`, v0)
 - [x] Caddy module (`caddy/`, build with xcaddy) — nginx and Traefik via a ForwardAuth sidecar still to come
-- [ ] Federated reporter seam for a shared crawler denylist
+- [x] Federation consumer: pull a shared bad-IP denylist feed (reporter half next)
 
 ## Build and test
 

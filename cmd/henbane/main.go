@@ -48,7 +48,7 @@ func main() {
 		metricsReg = metrics.New()
 	}
 
-	h, err := newHandler(cfg, logger, fail2banW, metricsReg)
+	h, background, err := newHandler(cfg, logger, fail2banW, metricsReg)
 	if err != nil {
 		logger.Error("startup error", "err", err)
 		os.Exit(2)
@@ -59,7 +59,7 @@ func main() {
 		metricsH = metricsReg.Handler()
 	}
 
-	if err := serve(cfg, h, metricsH, logger); err != nil {
+	if err := serve(cfg, h, metricsH, background, logger); err != nil {
 		logger.Error("server stopped", "err", err)
 		os.Exit(1)
 	}
@@ -68,9 +68,15 @@ func main() {
 // serve runs the proxy server (and, when metricsH is non-nil, a separate metrics
 // server on cfg.Metrics.Listen) until SIGINT/SIGTERM, then drains in-flight
 // requests for up to 10s before returning.
-func serve(cfg config.Config, h, metricsH http.Handler, logger *slog.Logger) error {
+func serve(cfg config.Config, h, metricsH http.Handler, background []func(context.Context), logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Background tasks (e.g. the federation feed refresher) run for the life of
+	// the server and stop when ctx is cancelled on shutdown.
+	for _, task := range background {
+		go task(ctx)
+	}
 
 	srv := &http.Server{
 		Addr:    cfg.Listen,
