@@ -52,6 +52,7 @@ func fullStackEngine(b *testing.B) ports.Engine {
 	cfg.Honeypot.Enabled = true
 	cfg.Honeypot.Path = "/trap"
 	cfg.Velocity.Enabled = true
+	cfg.Velocity.Requests = 1_000_000_000 // high so the loop measures the clean allow path, not velocity saturation
 	cfg.VerifiedBots.Enabled = true
 	cfg.AICrawlers.Enabled = true
 	cfg.PoW.Mode = "suspect"
@@ -86,23 +87,21 @@ func BenchmarkEngineDecide(b *testing.B) {
 
 // --- crawler cost: poison generation throughput ---
 
-// poisonBytes sums the bytes a Poisoner emits for one page (4 paragraphs), so the
-// benchmark can report MB/s of garbage generated.
-func poisonBytes(p ports.Poisoner) int64 {
-	var n int64
-	for _, para := range p.Paragraphs(1, 4) {
-		n += int64(len(para))
-	}
-	return n
-}
-
+// benchPoison measures generation throughput. It accumulates the ACTUAL bytes
+// emitted across every (varying-seed) iteration and reports MB/s from that, rather
+// than extrapolating a single seed's page size — page size is seed-dependent, so
+// the one-sample approach systematically biased the throughput column.
 func benchPoison(b *testing.B, p ports.Poisoner) {
-	b.SetBytes(poisonBytes(p))
 	b.ReportAllocs()
+	var total int64
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = p.Paragraphs(int64(i), 4)
+		for _, para := range p.Paragraphs(int64(i), 4) {
+			total += int64(len(para))
+		}
 	}
+	b.StopTimer()
+	b.ReportMetric(float64(total)/1e6/b.Elapsed().Seconds(), "MB/s")
 }
 
 func BenchmarkPoisonBabble(b *testing.B)  { benchPoison(b, babble.New(nil, "bench")) }
