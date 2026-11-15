@@ -21,6 +21,7 @@ import (
 	"github.com/datadir-lab/henbane/internal/config"
 	"github.com/datadir-lab/henbane/internal/core"
 	"github.com/datadir-lab/henbane/internal/detect/browserhint"
+	"github.com/datadir-lab/henbane/internal/detect/consistency"
 	"github.com/datadir-lab/henbane/internal/detect/crawlerips"
 	"github.com/datadir-lab/henbane/internal/detect/denylist"
 	"github.com/datadir-lab/henbane/internal/detect/goodbot"
@@ -156,8 +157,10 @@ func Build(cfg config.Config, extra ...ports.Detector) (Components, error) {
 	}
 	// In suspect mode the browser-hint signal populates the Suspect tier
 	// (→ challenge). Under "all" everyone is already challenged; under "off" a
-	// Suspect verdict has no handler, so the signal stays disabled.
-	if cfg.PoW.Mode == "suspect" {
+	// Suspect verdict has no handler, so the signal stays disabled. When scoring
+	// is enabled the consistency scorer subsumes this check (as one graded
+	// signal), so the standalone detector is dropped to avoid double-counting.
+	if cfg.PoW.Mode == "suspect" && !cfg.Scoring.Enabled {
 		detectors = append(detectors, browserhint.New())
 	}
 	if cfg.Velocity.Enabled {
@@ -192,6 +195,16 @@ func Build(cfg config.Config, extra ...ports.Detector) (Components, error) {
 	engine := core.NewEngine(detectors...)
 	if vs := buildVerifiers(cfg); len(vs) > 0 {
 		engine.WithVerifiers(vs...)
+	}
+	if cfg.Scoring.Enabled {
+		suspectAt, confirmAt := cfg.Scoring.SuspectAt, cfg.Scoring.ConfirmAt
+		if suspectAt == 0 {
+			suspectAt = 2
+		}
+		if confirmAt == 0 {
+			confirmAt = 4
+		}
+		engine.WithScoring(suspectAt, confirmAt, consistency.New(consistency.DefaultWeights()))
 	}
 	return Components{
 		Engine:   engine,

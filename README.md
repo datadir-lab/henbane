@@ -324,6 +324,22 @@ When Henbane terminates TLS itself (set `tls.cert`/`tls.key`), it fingerprints e
 
 The fingerprint appears in the decision log as `tls_fp`, so you can watch your traffic and then block the stacks you've confirmed are bots via `deny.tls_fingerprints` (a `403`, like the IP and UA denylists). Because the fingerprint is *coarse*, it is shared by every client using the same TLS library — list only fingerprints you've confirmed, exactly as with CIDR and UA denylists. It is unavailable (empty) when a proxy or CDN terminates TLS in front of Henbane; this is a direct-exposure feature. A full JA3 is not possible from Go's standard library, which hides the raw ClientHello.
 
+## Scoring (signal fusion)
+
+Most of the signals above are strong on their own, but the tell-tale of a modern scraper is *inconsistency*: a request that claims to be Chrome yet doesn't behave like Chrome. Spoofing a `User-Agent` is one line of code; reproducing a real browser's whole request shape is not. Enable `scoring` and Henbane stops treating signals as independent tripwires and starts **accumulating** them:
+
+```yaml
+pow: { mode: suspect }
+scoring:
+  enabled: true
+  suspect_threshold: 2   # score ≥ this → challenge
+  confirm_threshold: 4   # score ≥ this → tarpit + poison
+```
+
+Each thing a browser-claiming client *omits* — `Sec-Fetch-Site` metadata, an `Accept` header, a language, a modern `Accept-Encoding`, HTTP/2 — adds weighted points. One miss is only worth a brief challenge; several **compound** into a confident *Confirmed*, so a stock HTTP client wearing a Chrome `User-Agent` lands in the labyrinth while a real browser sails through. Every piece of evidence is recorded in the decision log even when it doesn't escalate, so you can see *why* a client was judged. Definitive signals (denylists, honeypot) and verified good bots still win outright — scoring only ever *raises* suspicion, never lowers it.
+
+> **HTTP/2 note.** Deep HTTP/2 frame fingerprinting (the Akamai SETTINGS/priority signature) is the strongest anti-spoofing signal, but reading the raw h2 frames requires either a third-party HTTP/2 library or reimplementing the server — so it is out of scope for the zero-dependency core and tracked as a future optional-dependency module. The zero-dep protocol signal here (did the client negotiate HTTP/2 at all?) is a lighter proxy for it.
+
 ## Dependencies
 
 Henbane is Go, stdlib-first by policy. The only third-party runtime import is `gopkg.in/yaml.v3` for config. A CI guard fails the build if anything outside that allowlist appears in `go.mod`. A tool that fights surveillance should not become a supply-chain risk of its own.
@@ -340,6 +356,8 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Proof-of-work challenge gate: SHA-256 solver in a Web Worker (off-thread, flat-out), HMAC session token, themeable page, no-JS fallback
 - [x] Browser-hint and request-rate (velocity) suspicion signals
 - [x] TLS client fingerprinting (coarse, logged as `tls_fp`; `deny.tls_fingerprints`)
+- [x] Scoring / signal fusion — weak signals accumulate into a confident verdict (`scoring`), with browser-consistency (header + HTTP-version) checks
+- [ ] HTTP/2 Akamai frame fingerprint (optional-dependency module; the zero-dep core can't read raw h2 frames)
 - [x] Verified good bots: Web Bot Auth (RFC 9421 signed agents) + reverse-DNS search crawlers (Googlebot/Bingbot), with spoofer detection
 - [x] Verified AI crawlers by published IP range (GPTBot/ChatGPT-User/OAI-SearchBot, ClaudeBot family, PerplexityBot), with spoofer detection
 - [x] Prometheus `/metrics` endpoint on a separate private listener
