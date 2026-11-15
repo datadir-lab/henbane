@@ -218,72 +218,90 @@ func Parse(args []string) (Config, error) {
 	if cfg.Upstream == "" {
 		return Config{}, fmt.Errorf("upstream is required (set --upstream or upstream: in config)")
 	}
+	if err := Validate(cfg); err != nil {
+		return Config{}, err
+	}
+	// Metrics must not share the public listener, or aggregate operational data
+	// would be exposed on the proxy path to every client (crawlers included).
+	// This is a CLI-server concern (listen addresses), so it lives here, not in
+	// Validate, which covers the transport-agnostic component config.
+	if cfg.Metrics.Listen != "" && cfg.Metrics.Listen == cfg.Listen {
+		return Config{}, fmt.Errorf("metrics.listen must differ from listen (%q): serve metrics on a separate, private interface", cfg.Listen)
+	}
+	return cfg, nil
+}
+
+// Validate checks the transport-agnostic component configuration — everything
+// the detectors, engine, maze, PoW gate, and bomb are built from. It is shared
+// by Parse (the CLI) and the embeddable middleware, so both reject the same bad
+// config. It does NOT check CLI-only fields (upstream, listen addresses).
+func Validate(cfg Config) error {
 	tp, err := cfg.TrustedPrefixes()
 	if err != nil {
-		return Config{}, err
+		return err
 	}
 	// Reject a literal default route (/0), the common footgun that trusts every
 	// client. This does NOT catch equivalent broad unions (e.g. 0.0.0.0/1 +
 	// 128.0.0.0/1); avoiding those remains the operator's responsibility.
 	for _, p := range tp {
 		if p.Bits() == 0 {
-			return Config{}, fmt.Errorf("trusted_proxies %q is too broad: trusting all addresses re-enables X-Forwarded-For spoofing", p)
+			return fmt.Errorf("trusted_proxies %q is too broad: trusting all addresses re-enables X-Forwarded-For spoofing", p)
 		}
 	}
 	if _, err := cfg.DenyPrefixes(); err != nil {
-		return Config{}, err
+		return err
 	}
 	if cfg.Honeypot.Enabled {
 		if !strings.HasPrefix(cfg.Honeypot.Path, "/") {
-			return Config{}, fmt.Errorf("honeypot.path must be an absolute path, got %q", cfg.Honeypot.Path)
+			return fmt.Errorf("honeypot.path must be an absolute path, got %q", cfg.Honeypot.Path)
 		}
 		if _, err := cfg.HoneypotTTL(); err != nil {
-			return Config{}, err
+			return err
 		}
 		if cfg.Honeypot.MaxFlagged < 0 {
-			return Config{}, fmt.Errorf("honeypot.max_flagged must be >= 0")
+			return fmt.Errorf("honeypot.max_flagged must be >= 0")
 		}
 	}
 	if cfg.Labyrinth.LinksPerPage < 0 {
-		return Config{}, fmt.Errorf("labyrinth.links_per_page must be >= 0")
+		return fmt.Errorf("labyrinth.links_per_page must be >= 0")
 	}
 	switch cfg.Poison.Strategy {
 	case "", "babble", "splice", "article", "canary", "none":
 	default:
-		return Config{}, fmt.Errorf("poison.strategy %q is not one of babble|splice|article|canary|none", cfg.Poison.Strategy)
+		return fmt.Errorf("poison.strategy %q is not one of babble|splice|article|canary|none", cfg.Poison.Strategy)
 	}
 	if cfg.Poison.ParagraphsPerPage < 0 {
-		return Config{}, fmt.Errorf("poison.paragraphs_per_page must be >= 0")
+		return fmt.Errorf("poison.paragraphs_per_page must be >= 0")
 	}
 	if cfg.Poison.Strategy == "canary" && cfg.Poison.Salt == "" {
-		return Config{}, fmt.Errorf("poison.salt is required when poison.strategy is canary")
+		return fmt.Errorf("poison.salt is required when poison.strategy is canary")
 	}
 	switch cfg.PoW.Mode {
 	case "", "off", "suspect", "all":
 	default:
-		return Config{}, fmt.Errorf("pow.mode %q is not one of off|suspect|all", cfg.PoW.Mode)
+		return fmt.Errorf("pow.mode %q is not one of off|suspect|all", cfg.PoW.Mode)
 	}
 	if cfg.PoW.DifficultyBits < 0 {
-		return Config{}, fmt.Errorf("pow.difficulty_bits must be >= 0")
+		return fmt.Errorf("pow.difficulty_bits must be >= 0")
 	}
 	if _, err := cfg.PoWChallengeTTL(); err != nil {
-		return Config{}, err
+		return err
 	}
 	if _, err := cfg.PoWAccessTTL(); err != nil {
-		return Config{}, err
+		return err
 	}
 	switch cfg.Bomb.Trigger {
 	case "", "off", "confirmed", "blocked":
 	default:
-		return Config{}, fmt.Errorf("bomb.trigger %q is not one of off|confirmed|blocked", cfg.Bomb.Trigger)
+		return fmt.Errorf("bomb.trigger %q is not one of off|confirmed|blocked", cfg.Bomb.Trigger)
 	}
 	if cfg.Bomb.DecompressedCapMB < 0 {
-		return Config{}, fmt.Errorf("bomb.decompressed_cap_mb must be >= 0")
+		return fmt.Errorf("bomb.decompressed_cap_mb must be >= 0")
 	}
 	if cfg.Robots.Serve {
 		for _, p := range cfg.Robots.Disallow {
 			if !strings.HasPrefix(p, "/") {
-				return Config{}, fmt.Errorf("robots.disallow entry %q must be an absolute path", p)
+				return fmt.Errorf("robots.disallow entry %q must be an absolute path", p)
 			}
 		}
 	}
@@ -292,31 +310,26 @@ func Parse(args []string) (Config, error) {
 		switch tier {
 		case "", "suspect", "confirmed":
 		default:
-			return Config{}, fmt.Errorf("velocity.tier %q is not one of suspect|confirmed", tier)
+			return fmt.Errorf("velocity.tier %q is not one of suspect|confirmed", tier)
 		}
 		if tier == "" {
 			tier = "suspect"
 		}
 		// A suspect verdict maps to a proof-of-work challenge; without a gate the
-		// proxy fails that request closed (500). Reject the combination rather
-		// than silently 500 real traffic.
+		// gate fails that request closed (500). Reject the combination rather than
+		// silently 500 real traffic.
 		if tier == "suspect" && cfg.PoW.Mode != "suspect" && cfg.PoW.Mode != "all" {
-			return Config{}, fmt.Errorf("velocity.tier: suspect requires pow.mode suspect or all (a suspect verdict needs a proof-of-work gate); enable pow or use velocity.tier: confirmed")
+			return fmt.Errorf("velocity.tier: suspect requires pow.mode suspect or all (a suspect verdict needs a proof-of-work gate); enable pow or use velocity.tier: confirmed")
 		}
 		if cfg.Velocity.Requests < 0 {
-			return Config{}, fmt.Errorf("velocity.requests must be >= 0")
+			return fmt.Errorf("velocity.requests must be >= 0")
 		}
 		if cfg.Velocity.MaxTracked < 0 {
-			return Config{}, fmt.Errorf("velocity.max_tracked must be >= 0")
+			return fmt.Errorf("velocity.max_tracked must be >= 0")
 		}
 		if _, err := cfg.VelocityWindow(); err != nil {
-			return Config{}, err
+			return err
 		}
 	}
-	// Metrics must not share the public listener, or aggregate operational data
-	// would be exposed on the proxy path to every client (crawlers included).
-	if cfg.Metrics.Listen != "" && cfg.Metrics.Listen == cfg.Listen {
-		return Config{}, fmt.Errorf("metrics.listen must differ from listen (%q): serve metrics on a separate, private interface", cfg.Listen)
-	}
-	return cfg, nil
+	return nil
 }
