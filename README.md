@@ -114,6 +114,29 @@ example.com {
 
 Requests Henbane allows continue down the handler chain (to `reverse_proxy` here); the rest are challenged, tarpitted, or blocked first. With no config file the directive is passive.
 
+### nginx / Traefik (ForwardAuth sidecar)
+
+If you already run **nginx** or **Traefik**, you don't need to replace it. Run Henbane as an **auth sidecar**: your front proxy asks Henbane about each request, Henbane runs the full decision pipeline, and answers `204` to let the request through or a non-`2xx` deny carrying the challenge page / maze / `403`.
+
+```bash
+henbane --sidecar --config /etc/henbane.yaml   # same YAML; no upstream
+```
+
+Henbane reconstructs the original request from the forwarded headers (`X-Forwarded-Uri`/`X-Original-URI`, `X-Forwarded-Method`, `X-Forwarded-Host`, `X-Forwarded-For`), so the classifier sees the real path, method, host, and client IP. **Bind the sidecar to your internal network** — only the front proxy should reach it, since those headers are trusted. Set `trusted_proxies` to your front proxy so the client IP is taken from `X-Forwarded-For`.
+
+**Traefik** forwards a non-`2xx` auth response straight to the client, so the challenge and maze render directly:
+
+```yaml
+http:
+  middlewares:
+    henbane:
+      forwardAuth:
+        address: "http://henbane:8080/auth"
+        authResponseHeaders: ["X-Henbane-Action"]
+```
+
+**nginx** `auth_request` reads only the status, so the deny *body* is surfaced with an `error_page` recipe. Full, copy-pasteable configs for both — including routing the proof-of-work verify path so the challenge can be solved — are in [`docs/deploy/sidecar.md`](docs/deploy/sidecar.md).
+
 ## Configuration
 
 Zero-config works: a single `--upstream` passes all traffic through. For anything more, point `--config` at a YAML file. Every key below is one henbane reads today.
@@ -321,7 +344,8 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Verified AI crawlers by published IP range (GPTBot/ChatGPT-User/OAI-SearchBot, ClaudeBot family, PerplexityBot), with spoofer detection
 - [x] Prometheus `/metrics` endpoint on a separate private listener
 - [x] `net/http` middleware form factor (`henbane.New` / `hb.Handler`, v0)
-- [x] Caddy module (`caddy/`, build with xcaddy) — nginx and Traefik via a ForwardAuth sidecar still to come
+- [x] Caddy module (`caddy/`, build with xcaddy)
+- [x] nginx / Traefik support via a ForwardAuth / auth_request sidecar (`--sidecar`)
 - [x] Federation: pull a shared bad-IP denylist feed, and report your own confirmed detections back
 
 ## Build and test
