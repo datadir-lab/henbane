@@ -1,0 +1,14 @@
+{
+  "method": "GET",
+  "url": "https://example.com/some/path",
+  "signatureInput": "sig1=(\"@authority\" \"signature-agent\";key=\"sig1\");created=1700000000;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";expires=1700100000;tag=\"web-bot-auth\"",
+  "signature": "sig1=:kAp50VKXS0PI3pB5OtC2n6V62Vm5fG8uneGXXUd1vr0zuaMUZeR7rEjWQFgGOlRGkw9aBeoyTGobt1jPorErBA==:",
+  "signatureAgent": "sig1=\"https://signature-agent.test\";type=directory",
+  "jwk": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"
+  },
+  "thumbprint": "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U",
+  "nowUnix": 1700000050
+}
