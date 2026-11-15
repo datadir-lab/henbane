@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/datadir-lab/henbane/internal/adapters/authz"
 	"github.com/datadir-lab/henbane/internal/adapters/metrics"
 	"github.com/datadir-lab/henbane/internal/adapters/proxy"
 	"github.com/datadir-lab/henbane/internal/adapters/sink"
@@ -23,14 +24,6 @@ import (
 // the caller serves its Handler on the separate metrics listener. It also returns
 // any background tasks (e.g. the federation feed refresher) the caller must run.
 func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, metricsReg *metrics.Registry) (http.Handler, []func(context.Context), error) {
-	upstream, err := url.Parse(cfg.Upstream)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid upstream %q: %w", cfg.Upstream, err)
-	}
-	if upstream.Scheme == "" || upstream.Host == "" {
-		return nil, nil, fmt.Errorf("invalid upstream %q: missing scheme or host", cfg.Upstream)
-	}
-
 	// Federation consumer + reporter (each optional) plus their background tasks.
 	fed, err := assembly.Federation(cfg, logger)
 	if err != nil {
@@ -56,11 +49,36 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, met
 	}
 	sinks = append(sinks, fed.Sinks...)
 
-	var handler http.Handler = proxy.New(upstream, comps.Engine, sinks, logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb)
+	handler, err := buildServeHandler(cfg, comps, sinks, logger)
+	if err != nil {
+		return nil, nil, err
+	}
 	if cfg.Robots.Serve {
 		handler = withRobots(buildRobots(cfg), handler)
 	}
 	return handler, fed.Background, nil
+}
+
+// buildServeHandler selects the form factor: a ForwardAuth/auth_request sidecar
+// for an existing nginx/Traefik front proxy (no upstream), or the standalone
+// reverse proxy. Both run the same decision pipeline; only the "allowed" action
+// differs — 204 for the front proxy to proceed, vs. proxying to upstream.
+func buildServeHandler(cfg config.Config, comps assembly.Components, sinks []ports.Sink, logger *slog.Logger) (http.Handler, error) {
+	if cfg.Sidecar.Enabled {
+		gate := proxy.NewGate(comps.Engine, sinks, logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb)
+		allow := gate.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		return authz.New(allow, comps.PoW.VerifyPath), nil
+	}
+	upstream, err := url.Parse(cfg.Upstream)
+	if err != nil {
+		return nil, fmt.Errorf("invalid upstream %q: %w", cfg.Upstream, err)
+	}
+	if upstream.Scheme == "" || upstream.Host == "" {
+		return nil, fmt.Errorf("invalid upstream %q: missing scheme or host", cfg.Upstream)
+	}
+	return proxy.New(upstream, comps.Engine, sinks, logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb), nil
 }
 
 // buildRobots renders the robots.txt body: Disallow the honeypot trap (so

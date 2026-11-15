@@ -16,6 +16,40 @@ import (
 	"github.com/datadir-lab/henbane/internal/config"
 )
 
+func TestSidecarAuthDecision(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	var cfg config.Config
+	cfg.Sidecar.Enabled = true
+	cfg.Deny.UserAgents = []string{"badbot"}
+
+	h, _, err := newHandler(cfg, logger, nil, nil)
+	if err != nil {
+		t.Fatalf("newHandler (sidecar): %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	auth := func(ua string) int {
+		req, _ := http.NewRequest("GET", front.URL+"/auth", nil)
+		req.Header.Set("X-Forwarded-Uri", "/some/page")
+		req.Header.Set("X-Forwarded-Method", "GET")
+		req.Header.Set("User-Agent", ua)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if got := auth("Mozilla/5.0"); got != http.StatusNoContent {
+		t.Errorf("allowed request: auth status = %d, want 204", got)
+	}
+	if got := auth("badbot/1.0"); got != http.StatusForbidden {
+		t.Errorf("denylisted UA: auth status = %d, want 403", got)
+	}
+}
+
 func TestFederationConsumerBlocksListedIP(t *testing.T) {
 	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "127.0.0.1/32\n") // the test client's own IP
