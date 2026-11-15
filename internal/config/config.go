@@ -60,6 +60,15 @@ type Velocity struct {
 	MaxTracked int    `yaml:"max_tracked"` // hard cap on tracked IPs; 0 => default 100000
 }
 
+// Federation configures the shared bad-bot intelligence seam. The consumer
+// (FeedURL) pulls a remote denylist and blocks listed clients. Reporter fields
+// (pushing confirmed-bad signals out) are added separately. Both opt-in.
+type Federation struct {
+	FeedURL    string `yaml:"feed_url"`    // consumer: remote denylist URL; empty => disabled
+	Refresh    string `yaml:"refresh"`     // e.g. "1h"; default 1h
+	MaxEntries int    `yaml:"max_entries"` // 0 => default 1,000,000
+}
+
 // Metrics configures the Prometheus-style metrics endpoint. It is served on a
 // SEPARATE listener so aggregate operational data never rides the public proxy
 // path; bind Listen to a private interface. Empty Listen => disabled.
@@ -78,19 +87,25 @@ type PoW struct {
 
 // Config is the Henbane configuration.
 type Config struct {
-	Listen         string    `yaml:"listen"`
-	Upstream       string    `yaml:"upstream"`
-	TrustedProxies []string  `yaml:"trusted_proxies"`
-	Deny           Deny      `yaml:"deny"`
-	Sinks          Sinks     `yaml:"sinks"`
-	Honeypot       Honeypot  `yaml:"honeypot"`
-	Labyrinth      Labyrinth `yaml:"labyrinth"`
-	Poison         Poison    `yaml:"poison"`
-	PoW            PoW       `yaml:"pow"`
-	Bomb           Bomb      `yaml:"bomb"`
-	Robots         Robots    `yaml:"robots"`
-	Velocity       Velocity  `yaml:"velocity"`
-	Metrics        Metrics   `yaml:"metrics"`
+	Listen         string     `yaml:"listen"`
+	Upstream       string     `yaml:"upstream"`
+	TrustedProxies []string   `yaml:"trusted_proxies"`
+	Deny           Deny       `yaml:"deny"`
+	Sinks          Sinks      `yaml:"sinks"`
+	Honeypot       Honeypot   `yaml:"honeypot"`
+	Labyrinth      Labyrinth  `yaml:"labyrinth"`
+	Poison         Poison     `yaml:"poison"`
+	PoW            PoW        `yaml:"pow"`
+	Bomb           Bomb       `yaml:"bomb"`
+	Robots         Robots     `yaml:"robots"`
+	Velocity       Velocity   `yaml:"velocity"`
+	Metrics        Metrics    `yaml:"metrics"`
+	Federation     Federation `yaml:"federation"`
+}
+
+// FederationRefresh parses Federation.Refresh, defaulting to 1h; must be positive.
+func (c Config) FederationRefresh() (time.Duration, error) {
+	return parseTTL(c.Federation.Refresh, time.Hour, "federation.refresh")
 }
 
 // PoWChallengeTTL parses PoW.ChallengeTTL, defaulting to 5m; must be positive.
@@ -328,6 +343,17 @@ func Validate(cfg Config) error {
 			return fmt.Errorf("velocity.max_tracked must be >= 0")
 		}
 		if _, err := cfg.VelocityWindow(); err != nil {
+			return err
+		}
+	}
+	if cfg.Federation.FeedURL != "" {
+		if !strings.HasPrefix(cfg.Federation.FeedURL, "http://") && !strings.HasPrefix(cfg.Federation.FeedURL, "https://") {
+			return fmt.Errorf("federation.feed_url must be an http(s) URL, got %q", cfg.Federation.FeedURL)
+		}
+		if cfg.Federation.MaxEntries < 0 {
+			return fmt.Errorf("federation.max_entries must be >= 0")
+		}
+		if _, err := cfg.FederationRefresh(); err != nil {
 			return err
 		}
 	}

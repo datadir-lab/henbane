@@ -397,3 +397,28 @@ func TestParseMetricsMustNotShareListener(t *testing.T) {
 		t.Error("metrics.listen equal to listen must be rejected")
 	}
 }
+
+func TestParseFederationRoundTrip(t *testing.T) {
+	cfg, err := parsePoison(t, "upstream: \"http://a:1\"\nfederation:\n  feed_url: \"https://feed.example/bad.txt\"\n  refresh: \"30m\"\n  max_entries: 5000\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Federation.FeedURL != "https://feed.example/bad.txt" || cfg.Federation.MaxEntries != 5000 {
+		t.Errorf("federation = %+v", cfg.Federation)
+	}
+	if d, err := cfg.FederationRefresh(); err != nil || d != 30*time.Minute {
+		t.Errorf("refresh = %v, %v", d, err)
+	}
+}
+
+func TestParseFederationRejectsBadURL(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nfederation:\n  feed_url: \"ftp://x\"\n"); err == nil {
+		t.Error("non-http feed_url must be rejected")
+	}
+}
+
+func TestParseFederationDisabledIgnoresFields(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nfederation:\n  max_entries: -5\n"); err != nil {
+		t.Errorf("disabled federation must skip validation: %v", err)
+	}
+}
