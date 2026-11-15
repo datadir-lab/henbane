@@ -37,7 +37,12 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, met
 		return nil, nil, err
 	}
 
-	comps, err := assembly.Build(cfg, fed.Detectors...)
+	extra := fed.Detectors
+	if wba := assembly.WebBotAuth(cfg, logger); wba != nil {
+		extra = append(extra, wba)
+	}
+
+	comps, err := assembly.Build(cfg, extra...)
 	if err != nil {
 		return nil, nil, err
 	}
