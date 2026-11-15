@@ -50,6 +50,74 @@ func TestSidecarAuthDecision(t *testing.T) {
 	}
 }
 
+func TestScoringClassifierEndToEnd(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "UPSTREAM")
+	}))
+	defer upstream.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	var cfg config.Config
+	cfg.Upstream = upstream.URL
+	cfg.PoW.Mode = "suspect" // Suspect -> challenge, Confirmed -> tarpit, Pass -> upstream
+	cfg.Scoring.Enabled = true
+
+	h, _, err := newHandler(cfg, logger, nil, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	const chromeUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
+	get := func(headers map[string]string) string {
+		req, _ := http.NewRequest("GET", front.URL+"/page", nil)
+		req.Header.Set("User-Agent", chromeUA)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+	snippet := func(s string) string {
+		if len(s) > 80 {
+			return s[:80]
+		}
+		return s
+	}
+
+	// A well-formed browser request scores (at most) the HTTP/1.1 point from
+	// httptest's h1 server — below the Suspect threshold — so it is allowed and
+	// reaches the upstream.
+	full := map[string]string{
+		"Sec-Fetch-Site": "none", "Accept": "text/html", "Accept-Language": "en-US", "Accept-Encoding": "gzip, br",
+	}
+	if body := get(full); body != "UPSTREAM" {
+		t.Errorf("browser-like request must reach upstream, got %q", snippet(body))
+	}
+
+	// One missing browser header: the score reaches Suspect -> a PoW challenge.
+	oneMiss := map[string]string{
+		"Accept": "text/html", "Accept-Language": "en-US", "Accept-Encoding": "gzip, br",
+	}
+	if body := get(oneMiss); !strings.Contains(body, "data-challenge") {
+		t.Errorf("a single mismatch must be challenged (PoW page), got %q", snippet(body))
+	}
+
+	// A bare client wearing a Chrome UA sends none of the browser headers: the
+	// mismatches COMPOUND past the Confirm threshold -> tarpit (maze), not merely
+	// a challenge and never the upstream. This is the fusion a max()-of-tripwires
+	// engine could not express.
+	if body := get(nil); body == "UPSTREAM" || strings.Contains(body, "data-challenge") {
+		t.Errorf("a compounded-score bot must be tarpitted, not passed or merely challenged; got %q", snippet(body))
+	}
+}
+
 func TestFederationConsumerBlocksListedIP(t *testing.T) {
 	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "127.0.0.1/32\n") // the test client's own IP
