@@ -4,11 +4,36 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/datadir-lab/henbane"
 )
+
+func TestLoadConfigValidatesAndReads(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "hb.yaml")
+	if err := os.WriteFile(good, []byte("poison:\n  strategy: splice\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := henbane.LoadConfig(good)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Poison.Strategy != "splice" {
+		t.Errorf("strategy = %q, want splice", cfg.Poison.Strategy)
+	}
+
+	bad := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(bad, []byte("poison:\n  strategy: bogus\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := henbane.LoadConfig(bad); err == nil {
+		t.Error("LoadConfig must reject an invalid config")
+	}
+}
 
 func appHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
