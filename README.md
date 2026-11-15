@@ -132,6 +132,11 @@ velocity:
   tier: "suspect"                # suspect (PoW toll, needs pow) | confirmed (tarpit)
   max_tracked: 100000            # hard cap on tracked IPs (memory bound)
 
+metrics:
+  listen: ""                     # e.g. "127.0.0.1:9090"; empty = disabled.
+                                 # Served on a SEPARATE, private listener — never
+                                 # the same address as `listen`.
+
 sinks:
   fail2ban:
     enabled: true
@@ -182,6 +187,20 @@ henbane: action=ban ip=203.0.113.9 tier=blocked reason=denylist_ua ua="GPTBot/1.
 
 The shipped filter (`deploy/fail2ban/henbane.conf`) and jail snippet (`deploy/fail2ban/jail.local`) match it, so you can ban at the firewall without writing a regex. The User-Agent is quoted, so a crawler cannot inject a fake ban line through its header.
 
+## Metrics
+
+Set `metrics.listen` and Henbane exposes Prometheus-format counters — hand-formatted, no client library:
+
+```
+# TYPE henbane_requests_total counter
+henbane_requests_total{action="tarpit",tier="confirmed"} 4812
+henbane_requests_total{action="allow",tier="pass"} 37190
+# TYPE henbane_signals_total counter
+henbane_signals_total{signal="honeypot"} 61
+```
+
+This is where the tarpit's value becomes visible: the `allow` count versus the `challenge`/`tarpit`/`block` counts is your human-to-bot ratio, and every `tarpit` is a maze page you made a crawler fetch instead of real content. The counters are aggregate — **no per-IP or per-path labels**, so they carry operational data, not user data. It is served on a **separate listener** (`metrics.listen` must differ from `listen`); bind it to a private interface so the numbers never ride the public proxy path. Off by default.
+
 ## Dependencies
 
 Henbane is Go, stdlib-first by policy. The only third-party runtime import is `gopkg.in/yaml.v3` for config. A CI guard fails the build if anything outside that allowlist appears in `go.mod`. A tool that fights surveillance should not become a supply-chain risk of its own.
@@ -198,7 +217,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Proof-of-work challenge gate: JS solver, HMAC session token, themeable page (WASM solver + no-JS fallback still to come)
 - [ ] Bundled AI-crawler IP ranges, plus a verified-good-bot check
 - [ ] Rate-based suspicion
-- [ ] Prometheus `/metrics` sink
+- [x] Prometheus `/metrics` endpoint on a separate private listener
 - [ ] `net/http` middleware form factor
 - [ ] Caddy module, with nginx and Traefik via a ForwardAuth sidecar
 - [ ] Federated reporter seam for a shared crawler denylist
