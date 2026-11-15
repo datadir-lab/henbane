@@ -274,7 +274,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Honeypot tripwire that marks a client Confirmed
 - [x] Labyrinth: an endless tree of generated links that wastes crawl budget
 - [x] Poison: babble, splice, article, and canary generators fill the maze
-- [x] Proof-of-work challenge gate: JS solver, HMAC session token, themeable page (WASM solver + no-JS fallback still to come)
+- [x] Proof-of-work challenge gate: SHA-256 solver in a Web Worker (off-thread, flat-out), HMAC session token, themeable page, no-JS fallback
 - [ ] Bundled AI-crawler IP ranges, plus a verified-good-bot check
 - [ ] Rate-based suspicion
 - [x] Prometheus `/metrics` endpoint on a separate private listener

@@ -45,7 +45,14 @@
     <div class="bar"><i id="fill"></i></div>
     <div class="st"><span class="l" id="lbl">working</span><span class="n" id="n">0%</span></div>
   </div>
-  <noscript>This check needs JavaScript. Please enable it to continue.</noscript>
+  <noscript>
+    <div class="pow" style="border-color:#4a3a28">
+      <b style="color:var(--bone)">JavaScript is required.</b><br>
+      This page verifies your browser with a small proof-of-work puzzle that runs
+      in JavaScript — no account, nothing tracked, just one anonymous session
+      cookie. Enable JavaScript for this site and reload to continue.
+    </div>
+  </noscript>
 
   <div class="why">
     <h2>Why the wait?</h2>
@@ -63,9 +70,9 @@
 "use strict";
 const _cfg=document.getElementById('hb').dataset, CHALLENGE=_cfg.challenge, BITS=+_cfg.bits, VERIFY=_cfg.verify;
 const fill=document.getElementById('fill'), lbl=document.getElementById('lbl'), nEl=document.getElementById('n');
-const enc=new TextEncoder();
 
-// Compact synchronous SHA-256 (matches Go's crypto/sha256 over UTF-8 bytes).
+// Compact SHA-256 (matches Go's crypto/sha256 over UTF-8 bytes). Defined once here
+// and also stringified into the Web Worker below, so there is a single hash impl.
 const K=new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
 function rotr(x,n){return (x>>>n)|(x<<(32-n));}
 function sha256(msg){
@@ -99,35 +106,78 @@ function sha256(msg){
 }
 function leadingZeros(b){let n=0;for(let i=0;i<b.length;i++){const c=b[i];if(c===0){n+=8;continue;}return n+Math.clz32(c)-24;}return n;}
 
-function fail(msg){lbl.textContent=msg;lbl.className='l err';}
-// Refuse to run a broken hash (fail closed, visibly).
-(function(){
-  const t=sha256(enc.encode("abc"));
-  let hex=""; for(const x of t) hex+=x.toString(16).padStart(2,'0');
-  if(hex!=="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"){fail("integrity check failed");throw new Error("sha256 self-test failed");}
-})();
-
-let i=0;
+// sha256 self-test: known digest of "abc". Both the worker and the fallback refuse
+// to run if it fails, so a broken hash fails closed instead of looping forever.
+const SELFTEST="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 const expected=Math.pow(2,BITS);
-function step(){
-  const deadline=performance.now()+120; // work ~120ms, then yield to paint
-  while(performance.now()<deadline){
-    for(let j=0;j<2000;j++,i++){
-      if(leadingZeros(sha256(enc.encode(CHALLENGE+i)))>=BITS){ submit(i); return; }
-    }
-  }
-  const pct=Math.min(99,(i/expected)*100);
-  fill.style.width=pct.toFixed(0)+'%'; nEl.textContent=Math.round(pct)+'%';
-  setTimeout(step,0);
-}
+function hex(t){let s="";for(const x of t)s+=x.toString(16).padStart(2,'0');return s;}
+function fail(msg){lbl.textContent=msg;lbl.className='l err';}
+function progress(i){const pct=Math.min(99,(i/expected)*100);fill.style.width=pct.toFixed(0)+'%';nEl.textContent=Math.round(pct)+'%';}
+
 async function submit(sol){
-  fill.style.width='100%'; nEl.textContent='100%';
-  lbl.textContent='verifying';
+  fill.style.width='100%';nEl.textContent='100%';lbl.textContent='verifying';
   try{
     const r=await fetch(VERIFY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({challenge:CHALLENGE,solution:String(sol)})});
     if(r.ok){lbl.textContent='verified, opening the page';lbl.className='l ok';fill.style.background='var(--gold)';location.reload();}
     else{fail('verification failed');}
   }catch(e){fail('network error');}
 }
-setTimeout(step,0);
+
+// Worker body: solves flat-out off the main thread, posting progress and the
+// solution. sha256/leadingZeros/rotr/K are prepended to its source (single impl).
+function workerBody(){
+  const enc=new TextEncoder();
+  function hx(t){let s="";for(const x of t)s+=x.toString(16).padStart(2,'0');return s;}
+  onmessage=function(e){
+    const d=e.data;
+    if(hx(sha256(enc.encode("abc")))!==d.selftest){postMessage({error:'sha256 self-test failed'});return;}
+    let i=0;
+    for(;;){
+      for(let j=0;j<8192;j++,i++){
+        if(leadingZeros(sha256(enc.encode(d.challenge+i)))>=d.bits){postMessage({solution:String(i)});return;}
+      }
+      postMessage({tried:i});
+    }
+  };
+}
+
+function runWorker(){
+  const src="const K=new Uint32Array(["+Array.from(K).join(',')+"]);\n"
+    +rotr.toString()+"\n"+sha256.toString()+"\n"+leadingZeros.toString()+"\n("+workerBody.toString()+")();";
+  const w=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
+  let done=false;
+  w.onmessage=function(e){
+    const d=e.data;
+    if(d.error){fail(d.error);w.terminate();return;}
+    if(d.tried!==undefined){progress(d.tried);return;}
+    if(d.solution!==undefined){done=true;w.terminate();submit(d.solution);}
+  };
+  w.onerror=function(){if(!done){w.terminate();runMainThread();}}; // fall back on worker error
+  w.postMessage({challenge:CHALLENGE,bits:BITS,selftest:SELFTEST});
+}
+
+// Fallback for environments without Web Workers: solve on the main thread in
+// ~120ms slices, yielding between them so the page stays responsive.
+function runMainThread(){
+  const enc=new TextEncoder();
+  if(hex(sha256(enc.encode("abc")))!==SELFTEST){fail('sha256 self-test failed');return;}
+  let i=0;
+  function step(){
+    const deadline=performance.now()+120;
+    while(performance.now()<deadline){
+      for(let j=0;j<2000;j++,i++){if(leadingZeros(sha256(enc.encode(CHALLENGE+i)))>=BITS){submit(i);return;}}
+    }
+    progress(i);setTimeout(step,0);
+  }
+  setTimeout(step,0);
+}
+
+// Prefer a Web Worker — it solves flat-out (faster) and off the main thread (no
+// jank). Fall back to the main thread where workers are unavailable.
+(function(){
+  try{
+    if(typeof Worker!=='undefined'&&typeof URL!=='undefined'&&URL.createObjectURL){runWorker();return;}
+  }catch(e){}
+  runMainThread();
+})();
 </script>
