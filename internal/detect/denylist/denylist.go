@@ -57,3 +57,37 @@ func (d uaDetector) Inspect(r ports.RequestView) (ports.Result, bool) {
 	}
 	return ports.Result{}, false
 }
+
+type tlsfpDetector struct{ set map[string]struct{} }
+
+// NewTLSFP returns a Detector that blocks clients whose TLS fingerprint (see
+// internal/tlsfp) matches any of fps. It only fires when Henbane terminates TLS
+// itself — otherwise the fingerprint is empty. A coarse TLS fingerprint is shared
+// by every client using the same TLS stack, so list only fingerprints confirmed
+// to be automated clients, exactly as with the IP and user-agent denylists.
+func NewTLSFP(fps []string) ports.Detector {
+	set := make(map[string]struct{}, len(fps))
+	for _, f := range fps {
+		if f != "" {
+			set[f] = struct{}{}
+		}
+	}
+	return tlsfpDetector{set: set}
+}
+
+func (d tlsfpDetector) Name() string { return "denylist_tls" }
+
+func (d tlsfpDetector) Inspect(r ports.RequestView) (ports.Result, bool) {
+	f, ok := r.(ports.TLSFingerprinter)
+	if !ok {
+		return ports.Result{}, false
+	}
+	fp := f.TLSFingerprint()
+	if fp == "" {
+		return ports.Result{}, false
+	}
+	if _, bad := d.set[fp]; bad {
+		return ports.Result{Signal: "denylist_tls", Tier: ports.TierBlocked}, true
+	}
+	return ports.Result{}, false
+}

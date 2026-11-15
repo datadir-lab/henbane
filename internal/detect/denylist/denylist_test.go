@@ -45,3 +45,30 @@ func TestUADetector(t *testing.T) {
 		t.Error("empty UA should not fire")
 	}
 }
+
+// fpView additionally implements ports.TLSFingerprinter.
+type fpView struct {
+	view
+	fp string
+}
+
+func (v fpView) TLSFingerprint() string { return v.fp }
+
+func TestTLSFPDetector(t *testing.T) {
+	d := NewTLSFP([]string{"deadbeefdeadbeef", "", "cafebabecafebabe"})
+
+	res, ok := d.Inspect(fpView{fp: "deadbeefdeadbeef"})
+	if !ok || res.Signal != "denylist_tls" || res.Tier != ports.TierBlocked {
+		t.Errorf("listed fingerprint = %+v, %v; want blocked", res, ok)
+	}
+	if _, ok := d.Inspect(fpView{fp: "0000000000000000"}); ok {
+		t.Error("an unlisted fingerprint must not fire")
+	}
+	if _, ok := d.Inspect(fpView{fp: ""}); ok {
+		t.Error("an empty fingerprint (no TLS termination) must not fire")
+	}
+	// A RequestView that does not expose a TLS fingerprint must not fire.
+	if _, ok := d.Inspect(view{}); ok {
+		t.Error("a non-TLSFingerprinter view must not fire")
+	}
+}
