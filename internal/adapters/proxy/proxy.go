@@ -151,7 +151,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, origin http.Hand
 		switch {
 		case authed && action == ports.ActionChallenge:
 			action = ports.ActionAllow
-		case !authed && action == ports.ActionAllow && h.pow.ChallengeAll:
+		case !authed && action == ports.ActionAllow && h.pow.ChallengeAll && !verdict.Allowlisted:
 			action = ports.ActionChallenge
 		}
 	}
