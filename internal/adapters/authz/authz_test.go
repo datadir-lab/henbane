@@ -1,0 +1,135 @@
+package authz
+
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+const verifyPath = "/.henbane/verify"
+
+// fakeGate stands in for proxy.Handler.Wrap(204): it answers 204 for an allowed
+// request, a 200 HTML maze for a tarpit, a 403 for a block, and a 200 cookie for
+// the verify endpoint — so the adapter's status/path handling can be checked
+// without building a full engine. It records the request it saw.
+func fakeGate(seen *http.Request) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*seen = *r
+		switch r.URL.Path {
+		case "/ok":
+			w.WriteHeader(http.StatusNoContent) // allow
+		case "/trap":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, "<html>maze</html>") // defaults to 200
+		case "/bad":
+			http.Error(w, "forbidden", http.StatusForbidden) // block
+		case verifyPath:
+			http.SetCookie(w, &http.Cookie{Name: "hb", Value: "token"})
+			_, _ = io.WriteString(w, "verified") // 200 + cookie
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+func authReq(fwdURI string) *http.Request {
+	r := httptest.NewRequest("GET", "/auth", nil) // the auth endpoint's own path
+	if fwdURI != "" {
+		r.Header.Set("X-Forwarded-Uri", fwdURI)
+	}
+	return r
+}
+
+func TestAllowReturns204(t *testing.T) {
+	var seen http.Request
+	h := New(fakeGate(&seen), verifyPath)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, authReq("/ok"))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("allow status = %d, want 204", w.Code)
+	}
+	if seen.URL.Path != "/ok" {
+		t.Errorf("gate saw path %q, want the reconstructed /ok", seen.URL.Path)
+	}
+}
+
+func TestTarpitBodyBecomesNon2xxDeny(t *testing.T) {
+	var seen http.Request
+	h := New(fakeGate(&seen), verifyPath)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, authReq("/trap"))
+	// A 200 maze would read as "allow" to the front proxy; it must become a deny.
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("tarpit status = %d, want 403 (remapped from 200)", w.Code)
+	}
+	if w.Body.String() != "<html>maze</html>" {
+		t.Errorf("maze body not preserved: %q", w.Body.String())
+	}
+}
+
+func TestBlockPassesThrough(t *testing.T) {
+	var seen http.Request
+	h := New(fakeGate(&seen), verifyPath)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, authReq("/bad"))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("block status = %d, want 403", w.Code)
+	}
+}
+
+func TestVerifyPathPassthroughKeeps200AndCookie(t *testing.T) {
+	var seen http.Request
+	h := New(fakeGate(&seen), verifyPath)
+	w := httptest.NewRecorder()
+	// The PoW solution submission is routed to the sidecar at the verify path.
+	r := httptest.NewRequest("POST", verifyPath, nil)
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("verify status = %d, want 200 (not remapped to a deny)", w.Code)
+	}
+	if len(w.Result().Cookies()) != 1 {
+		t.Errorf("verify must set the session cookie, got %v", w.Result().Cookies())
+	}
+}
+
+func TestReconstructMethodAndHost(t *testing.T) {
+	var seen http.Request
+	h := New(fakeGate(&seen), verifyPath)
+	r := authReq("/ok")
+	r.Header.Set("X-Forwarded-Method", "post")
+	r.Header.Set("X-Forwarded-Host", "example.com")
+	h.ServeHTTP(httptest.NewRecorder(), r)
+	if seen.Method != "POST" {
+		t.Errorf("reconstructed method = %q, want POST", seen.Method)
+	}
+	if seen.Host != "example.com" {
+		t.Errorf("reconstructed host = %q, want example.com", seen.Host)
+	}
+}
+
+func TestReconstructNginxOriginalURI(t *testing.T) {
+	var seen http.Request
+	h := New(fakeGate(&seen), verifyPath)
+	r := httptest.NewRequest("GET", "/auth", nil)
+	r.Header.Set("X-Original-URI", "/trap?q=1") // nginx auth_request style
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if seen.URL.Path != "/trap" || seen.URL.RawQuery != "q=1" {
+		t.Errorf("nginx X-Original-URI not applied: path=%q query=%q", seen.URL.Path, seen.URL.RawQuery)
+	}
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestBadMethodHeaderIgnored(t *testing.T) {
+	var seen http.Request
+	h := New(fakeGate(&seen), verifyPath)
+	r := authReq("/ok")
+	r.Header.Set("X-Forwarded-Method", "GET\r\nX-Injected: 1")
+	h.ServeHTTP(httptest.NewRecorder(), r)
+	if seen.Method != "GET" {
+		t.Errorf("a malformed forwarded method must be ignored, kept %q", seen.Method)
+	}
+}
