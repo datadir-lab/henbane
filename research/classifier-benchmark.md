@@ -35,23 +35,42 @@ actually behave like one?"). Header sets are the defaults these clients typicall
 send; exact values drift by version, so the corpus is representative, not a
 version-pinned capture.
 
-| profile | class | verdict | action |
-|---|---|---|---|
-| chrome-desktop | human | pass | allow |
-| firefox-desktop | human | pass | allow |
-| safari-desktop | human | pass | allow |
-| edge-desktop | human | pass | allow |
-| chrome-android | human | pass | allow |
-| go-net-http | spoofer | **confirmed** | tarpit |
-| python-requests | spoofer | **confirmed** | tarpit |
-| python-httpx | spoofer | **confirmed** | tarpit |
-| curl | spoofer | **confirmed** | tarpit |
-| scrapy | spoofer | **suspect** | challenge |
-| node-http | spoofer | **confirmed** | tarpit |
-| headless-chrome | known-miss | pass | allow |
-| honest-curl | known-miss | pass | allow |
+The corpus: **6 real browsers** (incl. a legit HTTP/1.1 Firefox), **8 scraper
+libraries** wearing a spoofed Chrome UA (Go net/http, Python requests/httpx, curl,
+Scrapy, node, Java HttpClient, wget), and **3 out-of-scope** cases (two headless
+real browsers, one honest curl).
 
-**Spoofers caught: 6/6. False positives: 0/5 real browsers.**
+**Metrics** (positive = caught at tier ≥ Suspect):
+
+| framing | precision | recall | F1 |
+|---|---|---|---|
+| naive scrapers vs. real browsers | **1.00** | **1.00** | **1.00** |
+| + headless browsers counted as positives | 1.00 | **0.73** | 0.84 |
+
+Every naive scraper is caught (5 → tarpit, Scrapy → challenge) with **zero false
+positives** on 6 real browsers. The second row is the honest ceiling: once real
+headless browsers are counted as things that *should* be caught, recall falls to
+0.73 — they send the full browser shape and this layer can't tell them apart.
+
+**Per-signal ablation** (spoofers caught of 8 with one weight disabled): removing
+any single signal *except* fetch-metadata still catches **8/8** — the signals are
+**redundant**, because a naive scraper misses several browser behaviours at once.
+Detection therefore survives any one signal being individually spoofed; removing
+Sec-Fetch alone drops it to 7/8.
+
+**Threshold sweep** (the detection / false-positive tradeoff):
+
+| `suspect_threshold` | spoofers caught | false positives |
+|---|---|---|
+| 1 | 8/8 | **1/6** (flags the HTTP/1.1 Firefox) |
+| **2 (default)** | **8/8** | **0/6** |
+| 3 | 8/8 | 0/6 |
+| 4 | 7/8 | 0/6 |
+| 5 | 3/8 | 0/6 |
+
+The default threshold of 2 is the sweet spot — maximal detection at zero false
+positives; lowering it to 1 would flag a legitimate HTTP/1.1 browser, which is
+exactly why 2 is the floor.
 
 ### What this does and does not show
 
