@@ -327,3 +327,57 @@ func TestParseRobotsRoundTrip(t *testing.T) {
 		t.Errorf("robots = %+v", cfg.Robots)
 	}
 }
+
+func TestParseVelocityConfirmedRoundTrip(t *testing.T) {
+	cfg, err := parsePoison(t, "upstream: \"http://a:1\"\nvelocity:\n  enabled: true\n  requests: 300\n  window: \"30s\"\n  tier: \"confirmed\"\n  max_tracked: 5000\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Velocity.Enabled || cfg.Velocity.Requests != 300 || cfg.Velocity.Tier != "confirmed" || cfg.Velocity.MaxTracked != 5000 {
+		t.Errorf("velocity = %+v", cfg.Velocity)
+	}
+	if w, err := cfg.VelocityWindow(); err != nil || w != 30*time.Second {
+		t.Errorf("window = %v, %v; want 30s", w, err)
+	}
+}
+
+func TestParseVelocitySuspectRequiresPoW(t *testing.T) {
+	// Default tier is suspect; with pow off this maps to an unhandled challenge.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nvelocity:\n  enabled: true\n"); err == nil {
+		t.Error("velocity.tier suspect with pow off must be rejected")
+	}
+}
+
+func TestParseVelocitySuspectWithPoWAllowed(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  mode: \"suspect\"\nvelocity:\n  enabled: true\n  tier: \"suspect\"\n"); err != nil {
+		t.Errorf("velocity suspect with pow suspect must be accepted: %v", err)
+	}
+}
+
+func TestParseVelocityConfirmedNeedsNoPoW(t *testing.T) {
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nvelocity:\n  enabled: true\n  tier: \"confirmed\"\n"); err != nil {
+		t.Errorf("velocity confirmed must not require pow: %v", err)
+	}
+}
+
+func TestParseVelocityRejectsBadFields(t *testing.T) {
+	cases := map[string]string{
+		"bad tier":      "upstream: \"http://a:1\"\nvelocity:\n  enabled: true\n  tier: \"bogus\"\n",
+		"negative reqs": "upstream: \"http://a:1\"\nvelocity:\n  enabled: true\n  tier: \"confirmed\"\n  requests: -1\n",
+		"negative max":  "upstream: \"http://a:1\"\nvelocity:\n  enabled: true\n  tier: \"confirmed\"\n  max_tracked: -1\n",
+		"bad window":    "upstream: \"http://a:1\"\nvelocity:\n  enabled: true\n  tier: \"confirmed\"\n  window: \"nope\"\n",
+		"zero window":   "upstream: \"http://a:1\"\nvelocity:\n  enabled: true\n  tier: \"confirmed\"\n  window: \"0s\"\n",
+	}
+	for name, body := range cases {
+		if _, err := parsePoison(t, body); err == nil {
+			t.Errorf("%s: expected a validation error", name)
+		}
+	}
+}
+
+func TestParseVelocityDisabledIgnoresFields(t *testing.T) {
+	// When disabled, invalid sub-fields must not trip validation.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nvelocity:\n  enabled: false\n  tier: \"bogus\"\n  requests: -5\n"); err != nil {
+		t.Errorf("disabled velocity must skip validation: %v", err)
+	}
+}
