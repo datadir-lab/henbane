@@ -299,3 +299,32 @@ func TestProxyBombFallsBackToMazeWithoutGzip(t *testing.T) {
 		t.Errorf("expected maze fallback, got hits=%d body=%q", maze.hits, rec.Body.String())
 	}
 }
+
+func TestGateWrapAllowsThroughToNext(t *testing.T) {
+	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionAllow, Tier: ports.TierPass}}
+	g := NewGate(eng, nil, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{}, Bomb{})
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		_, _ = io.WriteString(w, "NEXT")
+	})
+	rec := httptest.NewRecorder()
+	g.Wrap(next).ServeHTTP(rec, httptest.NewRequest("GET", "/x", nil))
+	if !called || rec.Body.String() != "NEXT" {
+		t.Errorf("allowed request must fall through to next: called=%v body=%q", called, rec.Body.String())
+	}
+}
+
+func TestGateWrapTarpitServesMazeNotNext(t *testing.T) {
+	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionTarpit, Tier: ports.TierConfirmed}}
+	maze := &fakeMaze{}
+	g := NewGate(eng, nil, discardLogger(), clientip.NewResolver(nil), maze, PoW{}, Bomb{})
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("tarpit must not reach the wrapped handler")
+	})
+	rec := httptest.NewRecorder()
+	g.Wrap(next).ServeHTTP(rec, httptest.NewRequest("GET", "/x", nil))
+	if maze.hits != 1 || !strings.Contains(rec.Body.String(), "maze:") {
+		t.Errorf("tarpit should serve the maze once, hits=%d body=%q", maze.hits, rec.Body.String())
+	}
+}
