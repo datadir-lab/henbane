@@ -2,6 +2,7 @@ package main
 
 import (
 	"compress/gzip"
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -9,10 +10,60 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/datadir-lab/henbane/internal/adapters/metrics"
 	"github.com/datadir-lab/henbane/internal/config"
 )
+
+func TestFederationConsumerBlocksListedIP(t *testing.T) {
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "127.0.0.1/32\n") // the test client's own IP
+	}))
+	defer feed.Close()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "UPSTREAM")
+	}))
+	defer upstream.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	var cfg config.Config
+	cfg.Upstream = upstream.URL
+	cfg.Federation.FeedURL = feed.URL
+	cfg.Federation.Refresh = "1h"
+
+	h, background, err := newHandler(cfg, logger, nil, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	if len(background) != 1 {
+		t.Fatalf("federation feed should yield 1 background task, got %d", len(background))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go background[0](ctx) // runs the refresher (immediate first fetch, then ticks)
+
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	// Poll until the refresher has loaded the feed and the client is blocked.
+	var status int
+	for i := 0; i < 40; i++ {
+		resp, err := http.Get(front.URL + "/x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		status = resp.StatusCode
+		resp.Body.Close()
+		if status == http.StatusForbidden {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if status != http.StatusForbidden {
+		t.Errorf("a client on the remote denylist should be blocked (403), got %d", status)
+	}
+}
 
 func TestMetricsRegistryCountsThroughHandler(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -21,7 +72,7 @@ func TestMetricsRegistryCountsThroughHandler(t *testing.T) {
 	defer upstream.Close()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	reg := metrics.New()
-	h, err := newHandler(config.Config{Upstream: upstream.URL}, logger, nil, reg)
+	h, _, err := newHandler(config.Config{Upstream: upstream.URL}, logger, nil, reg)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -46,7 +97,7 @@ func TestNewHandlerProxiesUpstream(t *testing.T) {
 	defer upstream.Close()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	h, err := newHandler(config.Config{Listen: ":0", Upstream: upstream.URL}, logger, nil, nil)
+	h, _, err := newHandler(config.Config{Listen: ":0", Upstream: upstream.URL}, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -67,7 +118,7 @@ func TestNewHandlerProxiesUpstream(t *testing.T) {
 
 func TestNewHandlerRejectsBadUpstream(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	if _, err := newHandler(config.Config{Upstream: "://bad"}, logger, nil, nil); err == nil {
+	if _, _, err := newHandler(config.Config{Upstream: "://bad"}, logger, nil, nil); err == nil {
 		t.Fatal("expected error for invalid upstream URL")
 	}
 }
@@ -80,7 +131,7 @@ func TestNewHandlerBlocksDenylistedUA(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{Upstream: upstream.URL, Deny: config.Deny{UserAgents: []string{"badbot"}}}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -122,7 +173,7 @@ func TestNewHandlerHoneypotFlagsClient(t *testing.T) {
 		Upstream: upstream.URL,
 		Honeypot: config.Honeypot{Enabled: true, Path: "/trap", MaxFlagged: 100},
 	}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -170,7 +221,7 @@ func TestPoisonBabbleServedToFlaggedClient(t *testing.T) {
 		Honeypot: config.Honeypot{Enabled: true, Path: "/trap", MaxFlagged: 100},
 		Poison:   config.Poison{Strategy: "babble", ParagraphsPerPage: 2},
 	}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -202,7 +253,7 @@ func TestPoisonSpliceServedToFlaggedClient(t *testing.T) {
 		Honeypot: config.Honeypot{Enabled: true, Path: "/trap", MaxFlagged: 100},
 		Poison:   config.Poison{Strategy: "splice", ParagraphsPerPage: 2},
 	}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -234,7 +285,7 @@ func TestPoisonNoneIsLinksOnly(t *testing.T) {
 		Honeypot: config.Honeypot{Enabled: true, Path: "/trap", MaxFlagged: 100},
 		Poison:   config.Poison{Strategy: "none"},
 	}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -257,7 +308,7 @@ func TestPoisonUnreadableCorpusFatal(t *testing.T) {
 		Upstream: "http://a:1",
 		Poison:   config.Poison{Strategy: "babble", CorpusPath: filepath.Join(t.TempDir(), "does-not-exist.txt")},
 	}
-	if _, err := newHandler(cfg, logger, nil, nil); err == nil {
+	if _, _, err := newHandler(cfg, logger, nil, nil); err == nil {
 		t.Error("expected fatal error for unreadable corpus_path")
 	}
 }
@@ -269,7 +320,7 @@ func TestPoWChallengeAllServesInterstitial(t *testing.T) {
 	defer upstream.Close()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{Upstream: upstream.URL, PoW: config.PoW{Mode: "all", DifficultyBits: 8}}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -296,7 +347,7 @@ func TestPoWSuspectModeChallengesSpoofedBrowser(t *testing.T) {
 	defer upstream.Close()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{Upstream: upstream.URL, PoW: config.PoW{Mode: "suspect", DifficultyBits: 8}}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -346,7 +397,7 @@ func TestBombServedToConfirmedCrawlerWithGzip(t *testing.T) {
 		Poison:   config.Poison{Strategy: "babble"},
 		Bomb:     config.Bomb{Trigger: "confirmed", DecompressedCapMB: 1},
 	}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -389,7 +440,7 @@ func TestPoWOffPassesThrough(t *testing.T) {
 	defer upstream.Close()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{Upstream: upstream.URL, PoW: config.PoW{Mode: "off"}}
-	h, _ := newHandler(cfg, logger, nil, nil)
+	h, _, _ := newHandler(cfg, logger, nil, nil)
 	front := httptest.NewServer(h)
 	defer front.Close()
 	resp, _ := http.Get(front.URL + "/page")
@@ -411,7 +462,7 @@ func TestRobotsTxtServedWithTrapDisallow(t *testing.T) {
 		Honeypot: config.Honeypot{Enabled: true, Path: "/.well-known/hb-trap", MaxFlagged: 100},
 		Robots:   config.Robots{Serve: true, Disallow: []string{"/private"}},
 	}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -445,7 +496,7 @@ func TestRobotsTxtNotServedWhenDisabled(t *testing.T) {
 	defer upstream.Close()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{Upstream: upstream.URL, Robots: config.Robots{Serve: false}}
-	h, _ := newHandler(cfg, logger, nil, nil)
+	h, _, _ := newHandler(cfg, logger, nil, nil)
 	front := httptest.NewServer(h)
 	defer front.Close()
 	resp, _ := http.Get(front.URL + "/robots.txt")
@@ -466,7 +517,7 @@ func TestVelocityConfirmedTarpitsFastClient(t *testing.T) {
 		Upstream: upstream.URL,
 		Velocity: config.Velocity{Enabled: true, Requests: 2, Window: "1m", Tier: "confirmed", MaxTracked: 100},
 	}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -512,7 +563,7 @@ func TestVelocitySuspectChallengesFastClientWithoutFailingClosed(t *testing.T) {
 		PoW:      config.PoW{Mode: "suspect"},
 		Velocity: config.Velocity{Enabled: true, Requests: 1, Window: "1m", Tier: "suspect", MaxTracked: 100},
 	}
-	h, err := newHandler(cfg, logger, nil, nil)
+	h, _, err := newHandler(cfg, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}

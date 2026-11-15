@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,25 +14,45 @@ import (
 	"github.com/datadir-lab/henbane/internal/adapters/sink"
 	"github.com/datadir-lab/henbane/internal/assembly"
 	"github.com/datadir-lab/henbane/internal/config"
+	"github.com/datadir-lab/henbane/internal/detect/remotedeny"
 	"github.com/datadir-lab/henbane/internal/ports"
 )
 
 // newHandler wires config into the shared components, sinks, and proxy adapter.
 // If fail2banW is non-nil a fail2ban sink writing to it is added; the caller
 // owns that writer's lifecycle. If metricsReg is non-nil it is added as a sink;
-// the caller serves its Handler on the separate metrics listener.
-func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, metricsReg *metrics.Registry) (http.Handler, error) {
+// the caller serves its Handler on the separate metrics listener. It also returns
+// any background tasks (e.g. the federation feed refresher) the caller must run.
+func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, metricsReg *metrics.Registry) (http.Handler, []func(context.Context), error) {
 	upstream, err := url.Parse(cfg.Upstream)
 	if err != nil {
-		return nil, fmt.Errorf("invalid upstream %q: %w", cfg.Upstream, err)
+		return nil, nil, fmt.Errorf("invalid upstream %q: %w", cfg.Upstream, err)
 	}
 	if upstream.Scheme == "" || upstream.Host == "" {
-		return nil, fmt.Errorf("invalid upstream %q: missing scheme or host", cfg.Upstream)
+		return nil, nil, fmt.Errorf("invalid upstream %q: missing scheme or host", cfg.Upstream)
 	}
 
-	comps, err := assembly.Build(cfg)
+	// Federation consumer: a remote denylist detector driven by a background
+	// refresher. The detector joins the engine; its refresher is a background task.
+	var extra []ports.Detector
+	var background []func(context.Context)
+	if cfg.Federation.FeedURL != "" {
+		refresh, err := cfg.FederationRefresh()
+		if err != nil {
+			return nil, nil, err
+		}
+		maxEntries := cfg.Federation.MaxEntries
+		if maxEntries == 0 {
+			maxEntries = 1_000_000
+		}
+		det := remotedeny.New()
+		extra = append(extra, det)
+		background = append(background, remotedeny.NewRefresher(det, cfg.Federation.FeedURL, refresh, maxEntries, logger).Run)
+	}
+
+	comps, err := assembly.Build(cfg, extra...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	sinks := []ports.Sink{sink.NewSlogSink(logger)}
@@ -46,7 +67,7 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, met
 	if cfg.Robots.Serve {
 		handler = withRobots(buildRobots(cfg), handler)
 	}
-	return handler, nil
+	return handler, background, nil
 }
 
 // buildRobots renders the robots.txt body: Disallow the honeypot trap (so

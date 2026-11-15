@@ -42,9 +42,12 @@ type Components struct {
 	Bomb     proxy.Bomb
 }
 
-// Build assembles Components from cfg. It returns an error for any invalid
-// sub-config (bad CIDR, unknown poison strategy, unreadable corpus, bad TTLs).
-func Build(cfg config.Config) (Components, error) {
+// Build assembles Components from cfg. Any extra detectors (e.g. a federation
+// remote-denylist detector the caller also drives with a background refresher)
+// are appended to the engine's detector list. It returns an error for any
+// invalid sub-config (bad CIDR, unknown poison strategy, unreadable corpus, bad
+// TTLs).
+func Build(cfg config.Config, extra ...ports.Detector) (Components, error) {
 	trusted, err := cfg.TrustedPrefixes()
 	if err != nil {
 		return Components{}, err
@@ -97,6 +100,7 @@ func Build(cfg config.Config) (Components, error) {
 		}
 		detectors = append(detectors, velocity.New(requests, window, maxTracked, tier))
 	}
+	detectors = append(detectors, extra...)
 
 	poisoner, err := buildPoisoner(cfg)
 	if err != nil {
