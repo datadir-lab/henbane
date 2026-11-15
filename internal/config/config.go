@@ -60,6 +60,13 @@ type Velocity struct {
 	MaxTracked int    `yaml:"max_tracked"` // hard cap on tracked IPs; 0 => default 100000
 }
 
+// Metrics configures the Prometheus-style metrics endpoint. It is served on a
+// SEPARATE listener so aggregate operational data never rides the public proxy
+// path; bind Listen to a private interface. Empty Listen => disabled.
+type Metrics struct {
+	Listen string `yaml:"listen"`
+}
+
 // PoW configures the proof-of-work challenge gate.
 type PoW struct {
 	Mode           string `yaml:"mode"`            // off|suspect|all; "" => off
@@ -83,6 +90,7 @@ type Config struct {
 	Bomb           Bomb      `yaml:"bomb"`
 	Robots         Robots    `yaml:"robots"`
 	Velocity       Velocity  `yaml:"velocity"`
+	Metrics        Metrics   `yaml:"metrics"`
 }
 
 // PoWChallengeTTL parses PoW.ChallengeTTL, defaulting to 5m; must be positive.
@@ -304,6 +312,11 @@ func Parse(args []string) (Config, error) {
 		if _, err := cfg.VelocityWindow(); err != nil {
 			return Config{}, err
 		}
+	}
+	// Metrics must not share the public listener, or aggregate operational data
+	// would be exposed on the proxy path to every client (crawlers included).
+	if cfg.Metrics.Listen != "" && cfg.Metrics.Listen == cfg.Listen {
+		return Config{}, fmt.Errorf("metrics.listen must differ from listen (%q): serve metrics on a separate, private interface", cfg.Listen)
 	}
 	return cfg, nil
 }
