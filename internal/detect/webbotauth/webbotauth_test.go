@@ -163,3 +163,25 @@ func TestUnsignedRequest(t *testing.T) {
 		t.Error("an unsigned request must not verify")
 	}
 }
+
+func TestWithinValidity(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	cases := []struct {
+		name   string
+		at     time.Time
+		params map[string]string
+		valid  bool
+	}{
+		{"no window at all", now, map[string]string{}, false},
+		{"fresh created, no expires", now, map[string]string{"created": "1700000000"}, true},
+		{"old created, no expires", now.Add(48 * time.Hour), map[string]string{"created": "1700000000"}, false},
+		{"in window", now, map[string]string{"created": "1699999000", "expires": "1700100000"}, true},
+		{"expired", time.Unix(1_700_200_000, 0), map[string]string{"created": "1700000000", "expires": "1700100000"}, false},
+		{"created in the future", now, map[string]string{"created": "1700100000"}, false},
+	}
+	for _, c := range cases {
+		if got := withinValidity(c.at, c.params); got != c.valid {
+			t.Errorf("%s: withinValidity = %v, want %v", c.name, got, c.valid)
+		}
+	}
+}
