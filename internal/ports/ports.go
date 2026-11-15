@@ -70,6 +70,9 @@ type Verdict struct {
 	Action  Action
 	Tier    Tier
 	Reasons []Signal
+	// Allowlisted is set when a Verifier proved the client is a trusted good bot
+	// and forced an allow. Transports may use it to skip "challenge everyone".
+	Allowlisted bool
 }
 
 // Event is the structured record emitted for a decision and consumed by sinks.
@@ -126,6 +129,15 @@ type Result struct {
 type Detector interface {
 	Name() string
 	Inspect(r RequestView) (Result, bool)
+}
+
+// Verifier runs before detectors and may force an authoritative verdict: proving
+// a client is a trusted good bot (returning TierPass to allow it, bypassing the
+// suspicion detectors) or an impostor (returning TierBlocked). Returning ok=false
+// means "no opinion" and lets the detectors run. Name identifies it for config.
+type Verifier interface {
+	Name() string
+	Verify(r RequestView) (sig Signal, tier Tier, ok bool)
 }
 
 // Poisoner produces deterministic plain-text poison paragraphs for a maze page.

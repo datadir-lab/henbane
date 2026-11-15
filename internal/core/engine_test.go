@@ -103,3 +103,44 @@ func TestDecidePopulatesTLSFingerprint(t *testing.T) {
 		t.Errorf("non-fingerprinter view must leave TLSFingerprint empty, got %q", ev2[0].TLSFingerprint)
 	}
 }
+
+type fakeVerifier struct {
+	sig  ports.Signal
+	tier ports.Tier
+	ok   bool
+}
+
+func (fakeVerifier) Name() string { return "fakev" }
+func (f fakeVerifier) Verify(ports.RequestView) (ports.Signal, ports.Tier, bool) {
+	return f.sig, f.tier, f.ok
+}
+
+func TestVerifierAllowsBypassingDetectors(t *testing.T) {
+	// A detector would confirm, but a verifier allows first → allow + allowlisted.
+	eng := NewEngine(fakeDet{res: ports.Result{Signal: "honeypot", Tier: ports.TierConfirmed}, fired: true}).
+		WithVerifiers(fakeVerifier{sig: "good_bot:googlebot", tier: ports.TierPass, ok: true})
+	v, events := eng.Decide(context.Background(), fakeView{})
+	if v.Action != ports.ActionAllow || !v.Allowlisted {
+		t.Errorf("verdict = %+v, want allow + allowlisted", v)
+	}
+	if len(events[0].Signals) != 1 || events[0].Signals[0] != "good_bot:googlebot" {
+		t.Errorf("signals = %v", events[0].Signals)
+	}
+}
+
+func TestVerifierBlocks(t *testing.T) {
+	eng := NewEngine().WithVerifiers(fakeVerifier{sig: "spoofed:googlebot", tier: ports.TierBlocked, ok: true})
+	v, _ := eng.Decide(context.Background(), fakeView{})
+	if v.Action != ports.ActionBlock || v.Allowlisted {
+		t.Errorf("verdict = %+v, want block", v)
+	}
+}
+
+func TestVerifierNoOpinionFallsThrough(t *testing.T) {
+	eng := NewEngine(fakeDet{res: ports.Result{Tier: ports.TierConfirmed}, fired: true}).
+		WithVerifiers(fakeVerifier{ok: false})
+	v, _ := eng.Decide(context.Background(), fakeView{})
+	if v.Tier != ports.TierConfirmed {
+		t.Errorf("a no-opinion verifier must fall through to detectors: %+v", v)
+	}
+}
