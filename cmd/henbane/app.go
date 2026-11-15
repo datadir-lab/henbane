@@ -11,6 +11,7 @@ import (
 
 	"github.com/datadir-lab/henbane/internal/adapters/metrics"
 	"github.com/datadir-lab/henbane/internal/adapters/proxy"
+	"github.com/datadir-lab/henbane/internal/adapters/report"
 	"github.com/datadir-lab/henbane/internal/adapters/sink"
 	"github.com/datadir-lab/henbane/internal/assembly"
 	"github.com/datadir-lab/henbane/internal/config"
@@ -61,6 +62,13 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, met
 	}
 	if metricsReg != nil {
 		sinks = append(sinks, metricsReg)
+	}
+	// Federation reporter: an async sink that contributes confirmed detections to
+	// a shared feed; its flusher is a background task.
+	if cfg.Federation.ReportURL != "" {
+		rep := report.New(cfg.Federation.ReportURL, cfg.Federation.ReportToken, cfg.Federation.DeploymentID, logger)
+		sinks = append(sinks, rep)
+		background = append(background, rep.Run)
 	}
 
 	var handler http.Handler = proxy.New(upstream, comps.Engine, sinks, logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb)
