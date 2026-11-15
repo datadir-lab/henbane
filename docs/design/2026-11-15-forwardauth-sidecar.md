@@ -54,12 +54,17 @@ the sidecar only translates transport semantics.
 - **Trust boundary is the front proxy.** The forwarded headers are authoritative
   only because the operator binds the sidecar to the internal network and sets
   `trusted_proxies`. The docs make both requirements explicit.
-- **Strict header parsing.** The URI is parsed with `url.ParseRequestURI` (bad
-  input leaves the subrequest untouched); the method is accepted only as a short
-  all-letter token, so a forwarded header can't inject bytes into the decision or
-  the logs.
-- **Fail toward the proxy's own handling**, not toward allow: a reconstruction
-  that can't parse a header leaves the field as-is rather than guessing.
+- **Only canonical `X-Forwarded-*` headers are trusted** (not `X-Original-*`
+  aliases), and the deploy recipes overwrite them at the proxy, so a client can't
+  forge a path the proxy didn't set. A bypass audit found that reading multiple
+  aliases let a client forge the one the proxy didn't overwrite — fixed by
+  trusting a single canonical name per field.
+- **Fail closed, never toward allow.** A forwarded URI that is present but
+  unparseable returns `400`, rather than falling back to evaluating the auth
+  endpoint's own (benign) path, which would read as an allow. The method is
+  accepted only as a short all-letter token (no byte injection into the decision
+  or logs). And if the gate writes no status at all, the adapter emits the deny
+  status rather than letting the server's implicit `200` read as an allow.
 
 ## Config and caveat
 

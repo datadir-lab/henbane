@@ -80,7 +80,7 @@ func (v *Verifier) Name() string { return "ai_crawler" }
 // Verify allows an IP-range-verified AI crawler and (when configured) blocks a
 // spoofer. It performs no I/O: the published ranges are held in memory.
 func (v *Verifier) Verify(r ports.RequestView) (ports.Signal, ports.Tier, bool) {
-	c := v.match(strings.ToLower(r.UserAgent()))
+	c := v.match(lowerUA(r.UserAgent()))
 	if c == nil {
 		return "", 0, false // not claiming to be a recognized AI crawler
 	}
@@ -95,6 +95,17 @@ func (v *Verifier) Verify(r ports.RequestView) (ports.Signal, ports.Tier, bool) 
 		return ports.Signal("spoofed:" + c.Name), v.spoofTier, true
 	}
 	return "", 0, false
+}
+
+// maxUABytes caps the User-Agent considered for matching so an attacker-sized UA
+// can't force a large allocation on the per-request verifier path.
+const maxUABytes = 512
+
+func lowerUA(ua string) string {
+	if len(ua) > maxUABytes {
+		ua = ua[:maxUABytes]
+	}
+	return strings.ToLower(ua)
 }
 
 func (v *Verifier) match(ua string) *Crawler {

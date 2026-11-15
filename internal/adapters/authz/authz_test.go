@@ -108,18 +108,56 @@ func TestReconstructMethodAndHost(t *testing.T) {
 	}
 }
 
-func TestReconstructNginxOriginalURI(t *testing.T) {
+func TestForwardedURIWithQuery(t *testing.T) {
 	var seen http.Request
 	h := New(fakeGate(&seen), verifyPath)
-	r := httptest.NewRequest("GET", "/auth", nil)
-	r.Header.Set("X-Original-URI", "/trap?q=1") // nginx auth_request style
+	r := authReq("/trap?q=1")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	if seen.URL.Path != "/trap" || seen.URL.RawQuery != "q=1" {
-		t.Errorf("nginx X-Original-URI not applied: path=%q query=%q", seen.URL.Path, seen.URL.RawQuery)
+		t.Errorf("forwarded URI not applied: path=%q query=%q", seen.URL.Path, seen.URL.RawQuery)
 	}
 	if w.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestUntrustedAliasesIgnored(t *testing.T) {
+	// Only X-Forwarded-Uri is trusted; a client-forgeable X-Original-URI must be
+	// ignored so it cannot override the proxy's authoritative path (auth bypass).
+	var seen http.Request
+	h := New(fakeGate(&seen), verifyPath)
+	r := httptest.NewRequest("GET", "/auth", nil)
+	r.Header.Set("X-Original-URI", "/ok")
+	h.ServeHTTP(httptest.NewRecorder(), r)
+	if seen.URL.Path == "/ok" {
+		t.Error("X-Original-URI must NOT be trusted — it is a client-forgeable auth-bypass vector")
+	}
+}
+
+func TestUnparseableForwardedURIFailsClosed(t *testing.T) {
+	h := New(fakeGate(new(http.Request)), verifyPath)
+	r := httptest.NewRequest("GET", "/auth", nil)
+	r.Header.Set("X-Forwarded-Uri", "://not a uri")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("an unparseable forwarded URI must fail closed (400), got %d", w.Code)
+	}
+}
+
+func TestForgedVerifyPathNotRoutedToUnwrappedGate(t *testing.T) {
+	// A client sends X-Forwarded-Uri = the verify path to the AUTH endpoint. It
+	// must NOT reach the unwrapped (cookie-setting) branch — it goes through the
+	// authWriter, so any 2xx is remapped to a deny.
+	var seen http.Request
+	h := New(fakeGate(&seen), verifyPath)
+	r := httptest.NewRequest("GET", "/auth", nil)
+	r.Header.Set("X-Forwarded-Uri", verifyPath)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code == http.StatusOK || w.Code == http.StatusNoContent {
+		t.Errorf("a forged verify path reached the unwrapped gate (status %d reads as allow)", w.Code)
 	}
 }
 

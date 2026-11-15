@@ -95,7 +95,7 @@ func (v *Verifier) Name() string { return "good_bot" }
 // Verify allows a reverse-DNS-verified crawler and (when configured) blocks a
 // spoofer. It never blocks the request path: an unresolved IP gets no opinion.
 func (v *Verifier) Verify(r ports.RequestView) (ports.Signal, ports.Tier, bool) {
-	c := v.match(strings.ToLower(r.UserAgent()))
+	c := v.match(lowerUA(r.UserAgent()))
 	if c == nil {
 		return "", 0, false // not claiming to be a recognized crawler
 	}
@@ -171,7 +171,10 @@ func (v *Verifier) fcrdns(ctx context.Context, ip netip.Addr) (string, bool) {
 		}
 		return "", false
 	}
-	for _, name := range names {
+	for i, name := range names {
+		if i >= maxPTRNames {
+			break // bound the forward-lookup fan-out an attacker-controlled PTR set can drive
+		}
 		name = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
 		addrs, err := v.res.LookupHost(ctx, name)
 		if err != nil {
@@ -192,6 +195,21 @@ func dnsStable(err error) bool {
 		return de.IsNotFound
 	}
 	return false
+}
+
+// maxUABytes caps the User-Agent considered for matching (real crawler UAs are
+// far shorter), so an attacker-sized UA can't force a large allocation on the
+// per-request verifier path. maxPTRNames bounds the forward-lookup fan-out.
+const (
+	maxUABytes  = 512
+	maxPTRNames = 8
+)
+
+func lowerUA(ua string) string {
+	if len(ua) > maxUABytes {
+		ua = ua[:maxUABytes]
+	}
+	return strings.ToLower(ua)
 }
 
 func (v *Verifier) match(ua string) *Crawler {
