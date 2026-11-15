@@ -28,9 +28,9 @@ type Labyrinth struct {
 
 // Poison configures the poison body text injected into maze pages.
 type Poison struct {
-	Strategy          string `yaml:"strategy"`            // babble|article|canary|none; "" => babble
+	Strategy          string `yaml:"strategy"`            // babble|splice|article|canary|none; "" => babble
 	ParagraphsPerPage int    `yaml:"paragraphs_per_page"` // 0 => default 3; clamped [0,20] downstream
-	CorpusPath        string `yaml:"corpus_path"`         // optional BYO corpus (babble); ignored by article/canary
+	CorpusPath        string `yaml:"corpus_path"`         // optional BYO corpus (babble, splice); ignored by article/canary
 	Salt              string `yaml:"salt"`                // per-deployment; required for canary
 }
 
@@ -240,9 +240,9 @@ func Parse(args []string) (Config, error) {
 		return Config{}, fmt.Errorf("labyrinth.links_per_page must be >= 0")
 	}
 	switch cfg.Poison.Strategy {
-	case "", "babble", "article", "canary", "none":
+	case "", "babble", "splice", "article", "canary", "none":
 	default:
-		return Config{}, fmt.Errorf("poison.strategy %q is not one of babble|article|canary|none", cfg.Poison.Strategy)
+		return Config{}, fmt.Errorf("poison.strategy %q is not one of babble|splice|article|canary|none", cfg.Poison.Strategy)
 	}
 	if cfg.Poison.ParagraphsPerPage < 0 {
 		return Config{}, fmt.Errorf("poison.paragraphs_per_page must be >= 0")
