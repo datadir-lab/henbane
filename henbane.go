@@ -15,9 +15,11 @@
 package henbane
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/datadir-lab/henbane/internal/adapters/metrics"
 	"github.com/datadir-lab/henbane/internal/adapters/proxy"
@@ -37,8 +39,10 @@ type Config = config.Config
 // holds the shared protection state (PoW gate, flag stores, rate counters), so
 // create ONE and reuse it across all routes rather than one per route.
 type Henbane struct {
-	gate    *proxy.Handler
-	metrics *metrics.Registry
+	gate       *proxy.Handler
+	metrics    *metrics.Registry
+	background []func(context.Context)
+	startOnce  sync.Once
 }
 
 type options struct {
@@ -90,7 +94,11 @@ func New(cfg Config, opts ...Option) (*Henbane, error) {
 	if err := config.Validate(cfg); err != nil {
 		return nil, err
 	}
-	comps, err := assembly.Build(cfg)
+	fed, err := assembly.Federation(cfg, o.logger)
+	if err != nil {
+		return nil, err
+	}
+	comps, err := assembly.Build(cfg, fed.Detectors...)
 	if err != nil {
 		return nil, err
 	}
@@ -99,8 +107,23 @@ func New(cfg Config, opts ...Option) (*Henbane, error) {
 	if o.fail2banW != nil {
 		sinks = append(sinks, sink.NewFail2banSink(o.fail2banW))
 	}
+	sinks = append(sinks, fed.Sinks...)
 	gate := proxy.NewGate(comps.Engine, sinks, o.logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb)
-	return &Henbane{gate: gate, metrics: reg}, nil
+	return &Henbane{gate: gate, metrics: reg, background: fed.Background}, nil
+}
+
+// Start activates Henbane's background tasks — the federation feed refresher and
+// the reporter flusher — under ctx. Call it once, with a context tied to your
+// server's lifetime; cancelling the context stops the tasks (and flushes any
+// pending reports). It is optional and idempotent: without it Henbane still
+// classifies every request, but federation (if configured) stays passive. If no
+// federation is configured, Start does nothing.
+func (h *Henbane) Start(ctx context.Context) {
+	h.startOnce.Do(func() {
+		for _, task := range h.background {
+			go task(ctx)
+		}
+	})
 }
 
 // Handler wraps next with Henbane's protection. Its type is

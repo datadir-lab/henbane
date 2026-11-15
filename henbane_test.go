@@ -1,6 +1,7 @@
 package henbane_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -8,9 +9,58 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/datadir-lab/henbane"
 )
+
+func TestFederationIsPassiveUntilStart(t *testing.T) {
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "127.0.0.1/32\n") // the test client's own IP
+	}))
+	defer feed.Close()
+
+	var cfg henbane.Config
+	cfg.Federation.FeedURL = feed.URL
+	cfg.Federation.Refresh = "1h"
+	hb, err := henbane.New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	srv := httptest.NewServer(hb.Handler(appHandler()))
+	defer srv.Close()
+
+	// Before Start, the federation feed is not fetched: the client is allowed.
+	resp, _ := http.Get(srv.URL + "/")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "APP" {
+		t.Fatalf("before Start, federation must be passive; got %q", string(body))
+	}
+
+	// After Start, the refresher loads the feed and the client is blocked.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hb.Start(ctx)
+	hb.Start(ctx) // idempotent — must not double-launch
+
+	var status int
+	for i := 0; i < 40; i++ {
+		r, err := http.Get(srv.URL + "/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		status = r.StatusCode
+		r.Body.Close()
+		if status == http.StatusForbidden {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if status != http.StatusForbidden {
+		t.Errorf("after Start, a listed client should be blocked (403), got %d", status)
+	}
+}
 
 func TestLoadConfigValidatesAndReads(t *testing.T) {
 	dir := t.TempDir()
