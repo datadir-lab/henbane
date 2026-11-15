@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +16,7 @@ import (
 
 	"github.com/datadir-lab/henbane/internal/adapters/metrics"
 	"github.com/datadir-lab/henbane/internal/config"
+	"github.com/datadir-lab/henbane/internal/tlsfp"
 )
 
 func main() {
@@ -65,6 +69,29 @@ func main() {
 	}
 }
 
+// listenAndServe runs srv over plain HTTP, or — when tls.cert/key are set —
+// terminates TLS with the fingerprint-capturing listener, so the client's TLS
+// fingerprint is available to detectors and the decision log.
+func listenAndServe(srv *http.Server, cfg config.Config) error {
+	if cfg.TLS.Cert == "" {
+		return srv.ListenAndServe()
+	}
+	cert, err := tls.LoadX509KeyPair(cfg.TLS.Cert, cfg.TLS.Key)
+	if err != nil {
+		return fmt.Errorf("load tls cert: %w", err)
+	}
+	tlsCfg := tlsfp.DecorateConfig(&tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	})
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		return err
+	}
+	srv.ConnContext = tlsfp.ConnContext
+	return srv.Serve(tls.NewListener(tlsfp.WrapListener(ln), tlsCfg))
+}
+
 // serve runs the proxy server (and, when metricsH is non-nil, a separate metrics
 // server on cfg.Metrics.Listen) until SIGINT/SIGTERM, then drains in-flight
 // requests for up to 10s before returning.
@@ -94,8 +121,12 @@ func serve(cfg config.Config, h, metricsH http.Handler, background []func(contex
 
 	errCh := make(chan error, 2)
 	go func() {
-		logger.Info("henbane starting", "version", version, "listen", cfg.Listen, "upstream", cfg.Upstream)
-		err := srv.ListenAndServe()
+		scheme := "http"
+		if cfg.TLS.Cert != "" {
+			scheme = "https"
+		}
+		logger.Info("henbane starting", "version", version, "listen", cfg.Listen, "scheme", scheme, "upstream", cfg.Upstream)
+		err := listenAndServe(srv, cfg)
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
 		}

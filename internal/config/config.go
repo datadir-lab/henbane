@@ -72,6 +72,15 @@ type Federation struct {
 	DeploymentID string `yaml:"deployment_id"` // stable ID so the feed can require cross-reporter consensus
 }
 
+// TLS configures TLS termination. When both Cert and Key are set, Henbane
+// terminates TLS itself — which enables TLS client fingerprinting. Empty means
+// plain HTTP, expecting a TLS-terminating proxy or CDN in front (in which case
+// the TLS fingerprint is unavailable).
+type TLS struct {
+	Cert string `yaml:"cert"` // PEM certificate file
+	Key  string `yaml:"key"`  // PEM private key file
+}
+
 // Metrics configures the Prometheus-style metrics endpoint. It is served on a
 // SEPARATE listener so aggregate operational data never rides the public proxy
 // path; bind Listen to a private interface. Empty Listen => disabled.
@@ -104,6 +113,7 @@ type Config struct {
 	Velocity       Velocity   `yaml:"velocity"`
 	Metrics        Metrics    `yaml:"metrics"`
 	Federation     Federation `yaml:"federation"`
+	TLS            TLS        `yaml:"tls"`
 }
 
 // FederationRefresh parses Federation.Refresh, defaulting to 1h; must be positive.
@@ -142,8 +152,9 @@ func parseTTL(s string, def time.Duration, name string) (time.Duration, error) {
 
 // Deny is the operator denylist.
 type Deny struct {
-	CIDRs      []string `yaml:"cidrs"`
-	UserAgents []string `yaml:"user_agents"` // case-insensitive substrings
+	CIDRs           []string `yaml:"cidrs"`
+	UserAgents      []string `yaml:"user_agents"`      // case-insensitive substrings
+	TLSFingerprints []string `yaml:"tls_fingerprints"` // coarse TLS fingerprints (tls.cert/key required)
 }
 
 // Sinks configures optional output sinks.
@@ -245,6 +256,9 @@ func Parse(args []string) (Config, error) {
 	// Validate, which covers the transport-agnostic component config.
 	if cfg.Metrics.Listen != "" && cfg.Metrics.Listen == cfg.Listen {
 		return Config{}, fmt.Errorf("metrics.listen must differ from listen (%q): serve metrics on a separate, private interface", cfg.Listen)
+	}
+	if (cfg.TLS.Cert == "") != (cfg.TLS.Key == "") {
+		return Config{}, fmt.Errorf("tls.cert and tls.key must both be set or both empty")
 	}
 	return cfg, nil
 }
