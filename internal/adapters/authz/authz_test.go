@@ -171,3 +171,31 @@ func TestBadMethodHeaderIgnored(t *testing.T) {
 		t.Errorf("a malformed forwarded method must be ignored, kept %q", seen.Method)
 	}
 }
+
+func TestDuplicateForwardedURIRejected(t *testing.T) {
+	// A proxy that appends rather than overwrites X-Forwarded-Uri leaves the
+	// client's value present; the adapter must reject the ambiguity (fail closed).
+	h := New(fakeGate(new(http.Request)), verifyPath)
+	r := httptest.NewRequest("GET", "/auth", nil)
+	r.Header.Add("X-Forwarded-Uri", "/attacker")
+	r.Header.Add("X-Forwarded-Uri", "/real")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("duplicate X-Forwarded-Uri must fail closed (400), got %d", w.Code)
+	}
+}
+
+func TestDenyStripsSetCookie(t *testing.T) {
+	// A 2xx the gate wrote (challenge/maze/verify) that gets remapped to a deny
+	// must not leak a Set-Cookie to the client.
+	var seen http.Request
+	h := New(fakeGate(&seen), verifyPath)
+	r := httptest.NewRequest("GET", "/auth", nil)
+	r.Header.Set("X-Forwarded-Uri", verifyPath) // forged → routed through authWriter
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if len(w.Result().Cookies()) != 0 {
+		t.Errorf("a remapped deny must strip Set-Cookie, got %v", w.Result().Cookies())
+	}
+}
