@@ -31,42 +31,54 @@ import (
 // response (which sets the session cookie) is not rewritten into a deny.
 func New(gate http.Handler, verifyPath string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reconstruct(r)
-		if verifyPath != "" && r.URL.Path == verifyPath {
+		// Match the verify path on the endpoint's OWN path, BEFORE reconstruct, so
+		// a forged X-Forwarded-Uri cannot route a request into the unwrapped
+		// cookie-setting branch.
+		isVerify := verifyPath != "" && r.URL.Path == verifyPath
+		if !reconstruct(r) {
+			// A forwarded URI was present but unparseable: fail closed rather than
+			// fall back to evaluating the auth endpoint's own (benign) path, which
+			// would read as an allow.
+			http.Error(w, "bad forwarded request", http.StatusBadRequest)
+			return
+		}
+		if isVerify {
 			gate.ServeHTTP(w, r)
 			return
 		}
-		gate.ServeHTTP(&authWriter{ResponseWriter: w, denyStatus: http.StatusForbidden}, r)
+		aw := &authWriter{ResponseWriter: w, denyStatus: http.StatusForbidden}
+		gate.ServeHTTP(aw, r)
+		if !aw.wroteHeader {
+			// The gate wrote no status (should not happen): fail closed, so the
+			// server's implicit 200 can never read as "allow" to the front proxy.
+			aw.WriteHeader(aw.denyStatus)
+		}
 	})
 }
 
 // reconstruct rewrites the auth subrequest in place to reflect the original
-// client request, using the headers nginx and Traefik forward. The auth endpoint
-// must only be reachable by the trusted front proxy (bind it to the internal
-// network); these headers are otherwise attacker-controlled, so parsing is
-// strict and failures leave the subrequest's own values untouched.
-func reconstruct(r *http.Request) {
-	if raw := firstHeader(r, "X-Forwarded-Uri", "X-Original-Uri", "X-Original-Url"); raw != "" {
-		if u, err := url.ParseRequestURI(raw); err == nil {
-			r.URL.Path = u.Path
-			r.URL.RawQuery = u.RawQuery
+// client request, from the X-Forwarded-* headers the front proxy sets. It trusts
+// ONLY these canonical names (not X-Original-* aliases): the proxy must OVERWRITE
+// them (nginx `proxy_set_header`, Traefik forwardAuth both do), so a client cannot
+// forge a value the proxy didn't set. The auth endpoint must be reachable only by
+// the trusted front proxy (bind it to the internal network). Returns false if a
+// forwarded URI is present but unparseable, so the caller can fail closed.
+func reconstruct(r *http.Request) bool {
+	if raw := r.Header.Get("X-Forwarded-Uri"); raw != "" {
+		u, err := url.ParseRequestURI(raw)
+		if err != nil {
+			return false
 		}
+		r.URL.Path = u.Path
+		r.URL.RawQuery = u.RawQuery
 	}
-	if m := sanitizeMethod(firstHeader(r, "X-Forwarded-Method", "X-Original-Method")); m != "" {
+	if m := sanitizeMethod(r.Header.Get("X-Forwarded-Method")); m != "" {
 		r.Method = m
 	}
 	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
 		r.Host = h
 	}
-}
-
-func firstHeader(r *http.Request, names ...string) string {
-	for _, n := range names {
-		if v := r.Header.Get(n); v != "" {
-			return v
-		}
-	}
-	return ""
+	return true
 }
 
 // sanitizeMethod accepts only a short, all-letter HTTP method token, so a

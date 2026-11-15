@@ -16,17 +16,25 @@ forwards, so the classifier sees the real path, method, host, and client IP:
 
 | What | Headers read (first non-empty wins) |
 |------|-------------------------------------|
-| Path + query | `X-Forwarded-Uri`, `X-Original-URI`, `X-Original-URL` |
-| Method | `X-Forwarded-Method`, `X-Original-Method` |
+| Path + query | `X-Forwarded-Uri` |
+| Method | `X-Forwarded-Method` |
 | Host | `X-Forwarded-Host` |
 | Client IP | `X-Forwarded-For` (via `trusted_proxies`) |
+
+Henbane trusts **only** these canonical `X-Forwarded-*` names (not `X-Original-*`
+aliases). Your front proxy **must overwrite** them — nginx `proxy_set_header` and
+Traefik's `forwardAuth` both do — so a client cannot forge a value the proxy
+didn't set. A forwarded URI that is present but unparseable is rejected (fail
+closed), never evaluated as the auth endpoint's own path.
 
 ## Security
 
 - **Bind the sidecar to your internal network** (e.g. `listen: "127.0.0.1:8080"`
-  or a private interface). Only the front proxy should reach it — those forwarded
-  headers are trusted, so a client that could hit the sidecar directly could lie
-  about its path and IP.
+  or a private interface). Only the front proxy should reach it — these forwarded
+  headers are authoritative only because the proxy sets them; a client that could
+  reach the sidecar directly, **or** a proxy that forwards rather than overwrites
+  `X-Forwarded-Uri`, could forge the request path and bypass path-based rules
+  (honeypot, path denylists). Both recipes below overwrite it.
 - Set `trusted_proxies` to the front proxy's address so the real client IP is
   taken from `X-Forwarded-For` rather than the proxy's own IP.
 
@@ -87,12 +95,14 @@ server {
     }
 
     # Internal auth subrequest — forwards the original request's identity.
+    # proxy_set_header OVERWRITES any client-supplied value, so a client cannot
+    # forge X-Forwarded-Uri to make the engine evaluate a different (allowed) path.
     location = /henbane_auth {
         internal;
         proxy_pass http://henbane/auth;
         proxy_pass_request_body off;
         proxy_set_header Content-Length "";
-        proxy_set_header X-Original-URI     $request_uri;
+        proxy_set_header X-Forwarded-Uri    $request_uri;
         proxy_set_header X-Forwarded-Method $request_method;
         proxy_set_header X-Forwarded-Host   $host;
         proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
@@ -101,7 +111,7 @@ server {
     # On a deny, fetch the challenge/maze/403 body from Henbane.
     location @henbane_deny {
         proxy_pass http://henbane/auth;
-        proxy_set_header X-Original-URI     $request_uri;
+        proxy_set_header X-Forwarded-Uri    $request_uri;
         proxy_set_header X-Forwarded-Method $request_method;
         proxy_set_header X-Forwarded-Host   $host;
         proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
