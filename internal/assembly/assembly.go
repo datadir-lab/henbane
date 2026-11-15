@@ -22,6 +22,7 @@ import (
 	"github.com/datadir-lab/henbane/internal/core"
 	"github.com/datadir-lab/henbane/internal/detect/browserhint"
 	"github.com/datadir-lab/henbane/internal/detect/denylist"
+	"github.com/datadir-lab/henbane/internal/detect/goodbot"
 	"github.com/datadir-lab/henbane/internal/detect/honeypot"
 	"github.com/datadir-lab/henbane/internal/detect/remotedeny"
 	"github.com/datadir-lab/henbane/internal/detect/velocity"
@@ -187,13 +188,42 @@ func Build(cfg config.Config, extra ...ports.Detector) (Components, error) {
 	if err != nil {
 		return Components{}, err
 	}
+	engine := core.NewEngine(detectors...)
+	if vs := buildVerifiers(cfg); len(vs) > 0 {
+		engine.WithVerifiers(vs...)
+	}
 	return Components{
-		Engine:   core.NewEngine(detectors...),
+		Engine:   engine,
 		Resolver: clientip.NewResolver(trusted),
 		Maze:     labyrinth.New(cfg.Labyrinth.LinksPerPage, poisoner, cfg.Poison.ParagraphsPerPage),
 		PoW:      pw,
 		Bomb:     buildBomb(cfg, poisoner),
 	}, nil
+}
+
+// buildVerifiers builds the engine's verifiers (currently the good-bot FCrDNS
+// verifier) from config.
+func buildVerifiers(cfg config.Config) []ports.Verifier {
+	if !cfg.VerifiedBots.Enabled {
+		return nil
+	}
+	crawlers := goodbot.Defaults()
+	if len(cfg.VerifiedBots.Crawlers) > 0 {
+		crawlers = crawlers[:0]
+		for _, c := range cfg.VerifiedBots.Crawlers {
+			crawlers = append(crawlers, goodbot.Crawler{Name: c.Name, UA: c.UA, Domains: c.Domains})
+		}
+	}
+	spoofTier, blockSpoof := ports.TierBlocked, true
+	switch cfg.VerifiedBots.SpoofTier {
+	case "", "off":
+		blockSpoof = false
+	case "suspect":
+		spoofTier = ports.TierSuspect
+	case "confirmed":
+		spoofTier = ports.TierConfirmed
+	}
+	return []ports.Verifier{goodbot.New(crawlers, spoofTier, blockSpoof)}
 }
 
 // buildBomb constructs the decompression-bomb response from config, reusing the

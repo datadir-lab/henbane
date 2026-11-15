@@ -72,6 +72,24 @@ type Federation struct {
 	DeploymentID string `yaml:"deployment_id"` // stable ID so the feed can require cross-reporter consensus
 }
 
+// Crawler overrides a built-in good-bot definition for reverse-DNS verification.
+type Crawler struct {
+	Name    string   `yaml:"name"`
+	UA      string   `yaml:"ua"`      // User-Agent substring (case-insensitive)
+	Domains []string `yaml:"domains"` // reverse-DNS domain suffixes, e.g. ".googlebot.com"
+}
+
+// VerifiedBots configures forward-confirmed reverse-DNS verification of search
+// crawlers. When enabled, a verified Googlebot/Bingbot is allowed (bypassing the
+// suspicion pipeline, so you don't poison the crawlers you want). A client whose
+// User-Agent claims a crawler it cannot be verified as is a spoofer, acted on at
+// SpoofTier when that is set.
+type VerifiedBots struct {
+	Enabled   bool      `yaml:"enabled"`
+	SpoofTier string    `yaml:"spoof_tier"` // off|suspect|confirmed|block; "" => off
+	Crawlers  []Crawler `yaml:"crawlers"`   // optional; overrides the built-in set
+}
+
 // WebBotAuth configures verification of Web Bot Auth signed agents (RFC 9421 /
 // draft-meunier-web-bot-auth). When enabled, a request carrying a valid Ed25519
 // signature from a key in one of the configured agent Directories is classified
@@ -110,22 +128,23 @@ type PoW struct {
 
 // Config is the Henbane configuration.
 type Config struct {
-	Listen         string     `yaml:"listen"`
-	Upstream       string     `yaml:"upstream"`
-	TrustedProxies []string   `yaml:"trusted_proxies"`
-	Deny           Deny       `yaml:"deny"`
-	Sinks          Sinks      `yaml:"sinks"`
-	Honeypot       Honeypot   `yaml:"honeypot"`
-	Labyrinth      Labyrinth  `yaml:"labyrinth"`
-	Poison         Poison     `yaml:"poison"`
-	PoW            PoW        `yaml:"pow"`
-	Bomb           Bomb       `yaml:"bomb"`
-	Robots         Robots     `yaml:"robots"`
-	Velocity       Velocity   `yaml:"velocity"`
-	Metrics        Metrics    `yaml:"metrics"`
-	Federation     Federation `yaml:"federation"`
-	TLS            TLS        `yaml:"tls"`
-	WebBotAuth     WebBotAuth `yaml:"webbotauth"`
+	Listen         string       `yaml:"listen"`
+	Upstream       string       `yaml:"upstream"`
+	TrustedProxies []string     `yaml:"trusted_proxies"`
+	Deny           Deny         `yaml:"deny"`
+	Sinks          Sinks        `yaml:"sinks"`
+	Honeypot       Honeypot     `yaml:"honeypot"`
+	Labyrinth      Labyrinth    `yaml:"labyrinth"`
+	Poison         Poison       `yaml:"poison"`
+	PoW            PoW          `yaml:"pow"`
+	Bomb           Bomb         `yaml:"bomb"`
+	Robots         Robots       `yaml:"robots"`
+	Velocity       Velocity     `yaml:"velocity"`
+	Metrics        Metrics      `yaml:"metrics"`
+	Federation     Federation   `yaml:"federation"`
+	TLS            TLS          `yaml:"tls"`
+	WebBotAuth     WebBotAuth   `yaml:"webbotauth"`
+	VerifiedBots   VerifiedBots `yaml:"verified_bots"`
 }
 
 // FederationRefresh parses Federation.Refresh, defaulting to 1h; must be positive.
@@ -405,6 +424,21 @@ func Validate(cfg Config) error {
 		for _, d := range cfg.WebBotAuth.Directories {
 			if !strings.HasPrefix(d, "https://") {
 				return fmt.Errorf("webbotauth.directories entry %q must be an https URL", d)
+			}
+		}
+	}
+	if cfg.VerifiedBots.Enabled {
+		switch cfg.VerifiedBots.SpoofTier {
+		case "", "off", "suspect", "confirmed", "block":
+		default:
+			return fmt.Errorf("verified_bots.spoof_tier %q is not one of off|suspect|confirmed|block", cfg.VerifiedBots.SpoofTier)
+		}
+		if cfg.VerifiedBots.SpoofTier == "suspect" && cfg.PoW.Mode != "suspect" && cfg.PoW.Mode != "all" {
+			return fmt.Errorf("verified_bots.spoof_tier: suspect requires pow.mode suspect or all")
+		}
+		for _, c := range cfg.VerifiedBots.Crawlers {
+			if c.UA == "" || len(c.Domains) == 0 {
+				return fmt.Errorf("verified_bots.crawlers entry %q needs a ua and at least one domain", c.Name)
 			}
 		}
 	}

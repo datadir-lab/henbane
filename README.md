@@ -199,6 +199,10 @@ webbotauth:
   directories:                   # agent key directories (https) to trust
     - "https://chatgpt.com"
 
+verified_bots:
+  enabled: false                 # allow reverse-DNS-verified search crawlers (Googlebot, Bingbot)
+  spoof_tier: "off"              # off | suspect | confirmed | block — action for a UA-spoofer
+
 sinks:
   fail2ban:
     enabled: true
@@ -273,6 +277,12 @@ A bot caught at one site should be known at the next. Two opt-in halves:
 
 Both halves are off by default.
 
+## Verified search crawlers (reverse DNS)
+
+Set `verified_bots.enabled` and Henbane verifies Googlebot, Bingbot, and Applebot by **forward-confirmed reverse DNS** — a genuine Googlebot IP reverse-resolves to `*.googlebot.com` and that hostname forward-resolves back to the same IP. A **verified** crawler is *allowed* — it bypasses the suspicion pipeline, so you don't tarpit or poison the search crawlers you actually want (and it isn't caught by `pow.mode: all`). Anything a spoofer sets in its User-Agent is irrelevant; only DNS decides.
+
+A client whose User-Agent *claims* to be a crawler but can't be verified is a **spoofer** (a common evasion) — handled at `verified_bots.spoof_tier` (`off` by default; set `block`/`confirmed`/`suspect` to act on it). DNS lookups run in the **background**, never on the request path — an IP gets "no opinion" until it resolves, so a flood of crawler-UA requests can't stall the server. The built-in crawler list (and their domains) is overridable via `verified_bots.crawlers`.
+
 ## Verified AI agents (Web Bot Auth)
 
 A User-Agent is a guess; a cryptographic signature is proof. [Web Bot Auth](https://blog.cloudflare.com/signed-agents/) (RFC 9421 HTTP Message Signatures + a published key directory) lets an agent *prove* its identity with an Ed25519 signature — OpenAI's ChatGPT agent, DuckDuckGo, and others already sign their traffic. Set `webbotauth.enabled`, list the agent key `directories` you recognise, and Henbane verifies each signature against those directories' keys and applies `webbotauth.tier` to a **verified** agent — so you act on a proven identity, not a spoofable header.
@@ -301,8 +311,8 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Proof-of-work challenge gate: SHA-256 solver in a Web Worker (off-thread, flat-out), HMAC session token, themeable page, no-JS fallback
 - [x] Browser-hint and request-rate (velocity) suspicion signals
 - [x] TLS client fingerprinting (coarse, logged as `tls_fp`; `deny.tls_fingerprints`)
-- [x] Verified AI agents via Web Bot Auth (RFC 9421 signatures) — reverse-DNS good-bot verification still to come
-- [ ] Bundled AI-crawler IP ranges, plus reverse-DNS good-bot verification
+- [x] Verified good bots: Web Bot Auth (RFC 9421 signed agents) + reverse-DNS search crawlers (Googlebot/Bingbot), with spoofer detection
+- [ ] Bundled AI-crawler IP ranges (GPTBot/ClaudeBot verification by published range)
 - [x] Prometheus `/metrics` endpoint on a separate private listener
 - [x] `net/http` middleware form factor (`henbane.New` / `hb.Handler`, v0)
 - [x] Caddy module (`caddy/`, build with xcaddy) — nginx and Traefik via a ForwardAuth sidecar still to come
