@@ -65,6 +65,20 @@ func WithFail2banLog(w io.Writer) Option {
 	return func(o *options) { o.fail2banW = w }
 }
 
+// LoadConfig reads and validates a Henbane YAML config file — the same file the
+// standalone binary reads. An empty path returns the default (passive) config.
+// Use it to configure New from a file instead of building Config in code.
+func LoadConfig(path string) (Config, error) {
+	cfg, err := config.LoadFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := config.Validate(cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
 // New builds a Henbane from cfg. It validates cfg and assembles the detectors,
 // engine, maze, PoW gate, and bomb, returning an error for any invalid config
 // (unknown poison strategy, bad CIDR, suspect velocity without a PoW gate, …).
