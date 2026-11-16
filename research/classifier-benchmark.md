@@ -19,7 +19,10 @@ not to flatter it. The headline is not a single number — it is a tradeoff.
   **1% bot rate precision is 0.03** — 97% of "catches" would be legitimate old
   browsers. The balanced-corpus F1 of 1.00 hides this entirely.
 - A **careful scraper that omits only `Sec-Fetch-Site` is header-identical to an
-  old Safari** — no header signal can separate them. This is the ceiling.
+  old Safari** — no *header* signal can separate them. This is the header-layer
+  ceiling. The non-header signal that *does* separate them — the **HTTP/2
+  fingerprint** — has since shipped as the optional `h2capture` module (#55); this
+  header-corpus study does not exercise it (see §2.6).
 - Three things make the default defensible anyway: the false-positive cost is a
   one-time **proof-of-work challenge, not a block** (every JS-capable old browser
   solves it); the **good-bot verifier rescues real crawlers** (Googlebot is
@@ -165,16 +168,24 @@ for an operator who prioritises zero friction over catching careful scrapers.
 `safari-15.6 → suspect`, `stealth-scraper → suspect`: identical bytes, identical
 verdict. No header feature separates a careful scraper from an old real browser.
 Separating them requires a *different layer* — TLS/HTTP-2 fingerprinting (refs
-[3][7][9]) or behaviour (ref [8]) — which is why those are the tracked next
-signals, and why deception handles the ones no signal can block.
+[3][7][9]) or behaviour (ref [8]). **HTTP/2 fingerprinting has since shipped** (the
+optional `h2capture` module, #55): a careful scraper's Go/httpx HTTP/2 fingerprint
+is not a browser's — a non-header signal it cannot shed by adding headers — so the
+two are separable there even though they are identical at the header layer this
+corpus measures. Behavioural fingerprinting remains tracked future work, and
+deception handles the ones no signal can block.
 
 **Quantified evasion floor.** The checks are presence-only, so the evasion cost is
 a fixed, tiny number of header lines. A default `python-requests`/`httpx` client
 (which already sends `Accept: */*` and `Accept-Encoding: gzip`) needs only **two**
 added headers — `Sec-Fetch-Site` and `Accept-Language` — to drop below the Suspect
 threshold and be allowed: being HTTP/1.1 it retains a single legacy-http point
-(score 1 < 2), while an HTTP/2 client scores **0** outright. So the floor is two
-to three header lines. This layer is a filter for *low-effort* bots, not a wall;
+(score 1 < 2), while an HTTP/2 client scores **0** outright *at the header layer*.
+(With the optional `h2capture` module wired, that HTTP/2 client no longer scores 0:
+its HTTP/2 fingerprint — pseudo-header order, or a `HEADER_TABLE_SIZE` of 4096 — is a
+non-header signal it cannot shed by adding headers; that is exactly what #55 adds.)
+So the *header-layer* floor is two to three header lines. This layer is a filter for
+*low-effort* bots, not a wall;
 its value is catching the large volume of scrapers that haven't bothered, not the
 ones that have. (An adversarial scorer audit established this floor; it is why the
 layer feeds a challenge and the deception stage, not a block.)
@@ -188,7 +199,7 @@ figures are vendor self-reported and not independently audited.
 
 | System | OSS/self-host | Classifier | TLS fp | HTTP/2 fp | Device/JS fp | Behavioural | Good-bot verify | PoW | Tarpit | Poison | Reputation |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **Henbane** | **AGPL/yes** | weighted score+fusion | ~coarse | N (planned) | N | ~velocity | **rDNS+WBA+IP** | Y | **Y** | **Y** | Y |
+| **Henbane** | **AGPL/yes** | weighted score+fusion | ~coarse | **~opt** (h2capture) | N | ~velocity | **rDNS+WBA+IP** | Y | **Y** | **Y** | Y |
 | Anubis | MIT/yes | weight score | N | N | N | N | UA+CIDR+rDNS | Y | N | N | opt DNSBL |
 | go-away | MIT/yes | CEL+fp | **JA3N/JA4** | ~ | ~ | N | IP ranges | opt | N | N | DNSBL |
 | Nepenthes | MIT/yes | none | N | N | N | N | N | N | **Y** | **Y** | N |
