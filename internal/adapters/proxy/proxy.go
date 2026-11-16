@@ -91,6 +91,17 @@ type Handler struct {
 	pow      PoW
 	bomb     Bomb
 	origin   http.Handler
+	observe  bool
+}
+
+// WithObserve enables observe (dry-run) mode: the full decision pipeline runs and
+// the verdict it WOULD take is recorded on each Event (with Observed=true), but no
+// request is challenged, tarpitted, or blocked — every request is served normally.
+// It lets an operator measure impact on real traffic before enforcing. Returns the
+// handler for chaining.
+func (h *Handler) WithObserve(observe bool) *Handler {
+	h.observe = observe
+	return h
 }
 
 // New builds a Handler proxying to upstream, consulting engine and fanning events
@@ -158,12 +169,21 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, origin http.Hand
 	}
 
 	// Emit the SERVED action (after PoW layering), so logs and metrics record what
-	// the client actually got — not the pre-layering classifier verdict.
+	// the client actually got — not the pre-layering classifier verdict. In observe
+	// mode Action is the action that WOULD have been taken (Observed=true), but the
+	// request is still served normally below.
 	for i := range events {
 		events[i].Action = action
+		events[i].Observed = h.observe
 		for _, s := range h.sinks {
 			s.Emit(events[i])
 		}
+	}
+
+	if h.observe {
+		// Observe (dry-run): record the would-be verdict above, but act on nothing.
+		origin.ServeHTTP(w, r)
+		return
 	}
 
 	switch action {
