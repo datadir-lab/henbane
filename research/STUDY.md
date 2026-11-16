@@ -52,9 +52,6 @@ Perplexity cutoff (calibrated): **618**.
 - **These filters do not check discourse coherence.** `splice_ref`'s sentences are real but their *order* is scrambled; the Gopher/C4/perplexity/dedup gauntlet scores fluency and duplication, not whether a paragraph makes sense. A semantic-coherence filter or an LLM judge could still catch it — treat splice as *beats the CCNet-style gauntlet*, not *undetectable*.
 - **Policy / liability.** Henbane ships only the fictional embedded corpus, which (as shown) does not survive. Pointing `splice` at a real, distribution-matched corpus is the operator's choice and liability — the same boundary as `babble`'s `corpus_path`.
 
----
-
-Regenerate with the commands at the top of `research/study.py`.
 ## Federation: does multi-site poison add up?
 
 Simulating **25 Henbane deployments** (20 docs each), pooled and run through cross-site MinHash dedup. The question the [strategy](../docs/STRATEGY.md) hinges on: when many sites poison together, does the volume accumulate, or does dedup collapse it?
@@ -64,3 +61,7 @@ Simulating **25 Henbane deployments** (20 docs each), pooled and run through cro
 - **With Henbane's per-deployment salt, it accumulates.** Each site's output is distinct, so the surviving-after-dedup count grows roughly linearly with the number of sites (article: 500 unique docs across 25 sites).
 - **Without a per-site salt, it collapses.** Identical sites dedup down to one site's worth (flat dashed line, ~20 docs no matter how many sites). This is *why* the generators mix a per-deployment salt into their seed.
 - **Honest caveat.** Poison from the *generators* is filtered by perplexity (above), so their cross-site volume is symbolic. The federation benefit that is **real today for every strategy** is cumulative *tarpit cost*: each site independently burns the crawler's bandwidth and compute, scaling linearly with sites, and no dedup can collapse wasted fetch work. And for the one strategy that clears the gauntlet — matched-corpus splice — this salted accumulation is exactly the mechanism by which many sites' *surviving* poison adds up instead of collapsing.
+
+---
+
+Regenerate with the commands at the top of `research/study.py`.

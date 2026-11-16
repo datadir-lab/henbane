@@ -28,6 +28,23 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+# A consistent, readable style for every figure: bold titles, a recessive grid,
+# and no top/right spines (the dataviz "render it and look at it" pass — legible
+# labels, no clutter).
+plt.rcParams.update({
+    "figure.dpi": 150,
+    "font.size": 11,
+    "axes.titlesize": 14,
+    "axes.titleweight": "bold",
+    "axes.labelsize": 11,
+    "axes.grid": True,
+    "grid.alpha": 0.3,
+    "axes.axisbelow": True,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "legend.framealpha": 0.9,
+})
+
 ROOT = pathlib.Path(__file__).resolve().parent
 DATA = ROOT / "data"
 FIGS = ROOT / "figures"
@@ -38,9 +55,20 @@ LABELS = {"babble": "babble (Markov)", "splice": "splice (embedded corpus)",
           "splice_ref": "splice_ref (matched corpus)",
           "article": "article (grammar)",
           "canary": "canary", "baseline_real": "real text (baseline)"}
-COLORS = {"babble": "#b4532a", "splice": "#3f8f8a", "splice_ref": "#2f6f9a",
-          "article": "#6f9050", "canary": "#9cbf69",
-          "baseline_real": "#5a6b8c"}
+# Categorical palette validated colorblind-safe (CVD ΔE 9.1, normal-vision floor
+# 19.6) against a light surface; see the dataviz skill's validator. Hues are
+# assigned per entity, in fixed order: splice_ref (the one survivor) takes the
+# salient blue, babble/splice the warm/aqua pair so the two high-perplexity
+# look-alikes stay distinct, and the real-text baseline a magenta that reads as
+# "not a strategy". The low-contrast WARN colors are fine here: every figure ships
+# with markers, a legend, and a data table (the relief rule).
+COLORS = {"babble": "#eb6834", "splice": "#1baf7a", "splice_ref": "#2a78d6",
+          "article": "#008300", "canary": "#eda100",
+          "baseline_real": "#e87ba4"}
+# Distinct marker shapes so lines that trace the same path (several strategies all
+# cliff to 0% together) stay tellable apart by shape, not colour alone.
+MARKERS = {"babble": "o", "splice": "s", "splice_ref": "D", "article": "^",
+           "canary": "v", "baseline_real": "P"}
 
 STOPWORDS = set("the be to of and a in that have i it for not on with he as you "
                 "do at this but his by from they we say her she or an will my one "
@@ -211,6 +239,7 @@ def main():
     plot_perplexity(ppls, ppl_cut)
     plot_final_survival(rows)
     multisite()
+    append_footer()
     print("study complete; figures in research/figures/, report in research/STUDY.md")
 
 
@@ -252,7 +281,7 @@ def multisite():
                 k += 1
         return k
 
-    plt.figure(figsize=(9, 5.4))
+    plt.figure(figsize=(10, 5.6))
     salted_final = {}
     for s in strategies:
         lsh = MinHashLSH(threshold=0.7, num_perm=64)  # add sites incrementally
@@ -266,23 +295,30 @@ def multisite():
                 idx += 1
             y.append(kept)
         salted_final[s] = y[-1]
-        plt.plot(ks, y, marker="o", color=COLORS[s], label=f"{LABELS[s]} — salted")
+        plt.plot(ks, y, marker=MARKERS[s], markersize=6, color=COLORS[s],
+                 linewidth=2, alpha=0.8, label=f"{LABELS[s]} — salted")
     # Un-salted reference: identical sites collapse to one site's worth; adding more
     # sites adds zero new uniques.
     base = survivors_in(by["article"][sites[0]])
     same = [base] * M
-    plt.plot(ks, same, "--", color="#888", linewidth=2, label="no per-site salt (identical sites)")
+    plt.plot(ks, same, "--", color="#555", linewidth=2.2, label="no per-site salt (identical sites)")
+    # The salted lines lie on top of each other (each site's salt makes its docs
+    # unique regardless of strategy), so say so rather than leave a viewer puzzling
+    # over four legend entries on one visible line.
+    plt.annotate("the four salted lines coincide —\nevery strategy accumulates identically",
+                 xy=(ks[-1], salted_final["article"]), xytext=(0.30, 0.62),
+                 textcoords="axes fraction", fontsize=10, color="#333333",
+                 arrowprops=dict(arrowstyle="->", color="#888", lw=1.2))
     plt.xlabel("participating sites")
     plt.ylabel("unique poison docs surviving cross-site dedup")
     plt.title("Federation: per-deployment salt makes sites add up")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    plt.legend(loc="upper left")
     plt.tight_layout()
     plt.savefig(FIGS / "multisite_federation.png", dpi=150)
     plt.close()
 
     per_site = len(by["article"][sites[0]])
-    with open(ROOT / "STUDY.md", "a", encoding="utf-8") as f:
+    with open(ROOT / "STUDY.md", "a", encoding="utf-8", newline="\n") as f:
         f.write(
             "\n## Federation: does multi-site poison add up?\n\n"
             f"Simulating **{M} Henbane deployments** ({per_site} docs each), pooled and "
@@ -313,48 +349,60 @@ STAGE_LABELS = ["generated", "boilerplate", "Gopher", "C4", "perplexity", "dedup
 
 
 def plot_funnel(rows):
-    plt.figure(figsize=(9, 5.2))
+    plt.figure(figsize=(10, 5.4))
     x = range(len(STAGES))
     for s in STRATEGIES:
         n0 = rows[s]["n"] or 1
         y = [100 * rows[s][k] / n0 for k in STAGES]
-        plt.plot(x, y, marker="o", color=COLORS[s], label=LABELS[s], linewidth=2)
+        plt.plot(x, y, marker=MARKERS[s], markersize=7, color=COLORS[s],
+                 label=LABELS[s], linewidth=2, alpha=0.9)
     plt.xticks(list(x), STAGE_LABELS)
     plt.ylabel("% of documents surviving")
-    plt.ylim(0, 103)
+    plt.ylim(-3, 104)
     plt.title("Survival through the dataset-filter gauntlet")
-    plt.grid(True, alpha=0.3)
-    plt.legend()
+    plt.legend(loc="lower left")
     plt.tight_layout()
     plt.savefig(FIGS / "survival_funnel.png", dpi=150)
     plt.close()
 
 
 def plot_perplexity(ppls, cut):
-    plt.figure(figsize=(9, 5.2))
+    plt.figure(figsize=(10, 5.8))
     data = [np.clip(ppls[s], 0, np.percentile(sum(ppls.values(), []), 99)) for s in STRATEGIES]
     bp = plt.boxplot(data, patch_artist=True, tick_labels=[LABELS[s] for s in STRATEGIES], showfliers=False)
     for patch, s in zip(bp["boxes"], STRATEGIES):
         patch.set_facecolor(COLORS[s])
-        patch.set_alpha(0.75)
-    plt.axhline(cut, color="#aa3333", linestyle="--", label=f"filter cutoff (~90% real text kept) = {cut:.0f}")
+        patch.set_alpha(0.85)
+    for median in bp["medians"]:
+        median.set_color("#111111")
+        median.set_linewidth(1.6)
+    plt.axhline(cut, color="#aa3333", linestyle="--", linewidth=2,
+                label=f"filter cutoff (~90% real text kept) = {cut:.0f}")
+    # Rotate the long strategy labels so they never collide.
+    plt.xticks(rotation=18, ha="right")
     plt.ylabel("word-trigram perplexity (lower = more fluent)")
     plt.title("Perplexity by strategy vs. real text")
-    plt.legend()
+    plt.legend(loc="upper right")
+    plt.grid(True, axis="y", alpha=0.3)
+    plt.gca().set_axisbelow(True)
     plt.tight_layout()
     plt.savefig(FIGS / "perplexity.png", dpi=150)
     plt.close()
 
 
 def plot_final_survival(rows):
-    plt.figure(figsize=(8, 5))
+    plt.figure(figsize=(10, 5.2))
     vals = [100 * rows[s]["dedup"] / (rows[s]["n"] or 1) for s in STRATEGIES]
-    plt.bar([LABELS[s] for s in STRATEGIES], vals, color=[COLORS[s] for s in STRATEGIES])
+    plt.bar([LABELS[s] for s in STRATEGIES], vals, color=[COLORS[s] for s in STRATEGIES],
+            edgecolor="#333333", linewidth=0.6)
     for i, v in enumerate(vals):
-        plt.text(i, v + 1, f"{v:.0f}%", ha="center")
+        plt.text(i, v + 1, f"{v:.0f}%", ha="center", fontweight="bold")
+    plt.xticks(rotation=18, ha="right")
     plt.ylabel("% surviving the full gauntlet")
     plt.title("End-to-end survival rate")
     plt.ylim(0, max(vals) * 1.25 + 5)
+    plt.grid(True, axis="y", alpha=0.3)
+    plt.gca().set_axisbelow(True)
     plt.tight_layout()
     plt.savefig(FIGS / "final_survival.png", dpi=150)
     plt.close()
@@ -451,10 +499,15 @@ def write_report(rows, ppls, cut):
               "- **Policy / liability.** Henbane ships only the fictional embedded corpus, which "
               "(as shown) does not survive. Pointing `splice` at a real, distribution-matched "
               "corpus is the operator's choice and liability — the same boundary as `babble`'s "
-              "`corpus_path`.", "",
-              "---", "",
-              "Regenerate with the commands at the top of `research/study.py`."]
-    (ROOT / "STUDY.md").write_text("\n".join(lines), encoding="utf-8")
+              "`corpus_path`.", ""]
+    # No footer here: multisite() appends the Federation section after this, and the
+    # footer is written last (append_footer) so it stays at the bottom of the page.
+    (ROOT / "STUDY.md").write_text("\n".join(lines), encoding="utf-8", newline="\n")
+
+
+def append_footer():
+    with open(ROOT / "STUDY.md", "a", encoding="utf-8", newline="\n") as f:
+        f.write("\n---\n\nRegenerate with the commands at the top of `research/study.py`.\n")
 
 
 if __name__ == "__main__":
