@@ -844,3 +844,43 @@ func TestVelocitySuspectChallengesFastClientWithoutFailingClosed(t *testing.T) {
 		t.Errorf("over-limit request still reached the upstream: %q", string(b2))
 	}
 }
+
+func TestObserveModeEndToEnd(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "UPSTREAM")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	reg := metrics.New()
+	var cfg config.Config
+	cfg.Upstream = upstream.URL
+	cfg.Observe = true
+	cfg.Deny.UserAgents = []string{"badbot"} // would be blocked when enforcing
+
+	h, _, err := newHandler(cfg, logger, nil, reg)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	req, _ := http.NewRequest("GET", front.URL+"/x", nil)
+	req.Header.Set("User-Agent", "badbot/1.0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Served normally (not 403) despite the would-be block...
+	if string(body) != "UPSTREAM" {
+		t.Errorf("observe mode must serve a would-be-blocked request upstream, got %q", string(body))
+	}
+	// ...but the would-be block is still recorded in metrics.
+	var sb strings.Builder
+	reg.Render(&sb)
+	if m := sb.String(); !strings.Contains(m, `action="block"`) {
+		t.Errorf("observe mode must record the would-be block in metrics; got:\n%s", m)
+	}
+}

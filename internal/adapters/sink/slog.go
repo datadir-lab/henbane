@@ -30,6 +30,10 @@ func (s *SlogSink) Emit(e ports.Event) {
 	if e.TLSFingerprint != "" {
 		attrs = append(attrs, slog.String("tls_fp", e.TLSFingerprint))
 	}
+	if e.Observed {
+		// Observe mode: action is what WOULD have been taken; the request was served.
+		attrs = append(attrs, slog.Bool("observe", true))
+	}
 	s.logger.LogAttrs(context.Background(), slog.LevelInfo, "decision", attrs...)
 }
 

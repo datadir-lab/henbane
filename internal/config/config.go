@@ -165,6 +165,7 @@ type PoW struct {
 type Config struct {
 	Listen         string       `yaml:"listen"`
 	Upstream       string       `yaml:"upstream"`
+	Observe        bool         `yaml:"observe"` // dry-run: record would-be verdicts, serve every request normally
 	TrustedProxies []string     `yaml:"trusted_proxies"`
 	Deny           Deny         `yaml:"deny"`
 	Sinks          Sinks        `yaml:"sinks"`

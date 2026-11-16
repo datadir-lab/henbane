@@ -65,7 +65,8 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, met
 // differs — 204 for the front proxy to proceed, vs. proxying to upstream.
 func buildServeHandler(cfg config.Config, comps assembly.Components, sinks []ports.Sink, logger *slog.Logger) (http.Handler, error) {
 	if cfg.Sidecar.Enabled {
-		gate := proxy.NewGate(comps.Engine, sinks, logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb)
+		gate := proxy.NewGate(comps.Engine, sinks, logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb).
+			WithObserve(cfg.Observe)
 		allow := gate.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 		}))
@@ -78,7 +79,8 @@ func buildServeHandler(cfg config.Config, comps assembly.Components, sinks []por
 	if upstream.Scheme == "" || upstream.Host == "" {
 		return nil, fmt.Errorf("invalid upstream %q: missing scheme or host", cfg.Upstream)
 	}
-	return proxy.New(upstream, comps.Engine, sinks, logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb), nil
+	return proxy.New(upstream, comps.Engine, sinks, logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb).
+		WithObserve(cfg.Observe), nil
 }
 
 // buildRobots renders the robots.txt body: Disallow the honeypot trap (so

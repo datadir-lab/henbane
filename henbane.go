@@ -112,7 +112,8 @@ func New(cfg Config, opts ...Option) (*Henbane, error) {
 		sinks = append(sinks, sink.NewFail2banSink(o.fail2banW))
 	}
 	sinks = append(sinks, fed.Sinks...)
-	gate := proxy.NewGate(comps.Engine, sinks, o.logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb)
+	gate := proxy.NewGate(comps.Engine, sinks, o.logger, comps.Resolver, comps.Maze, comps.PoW, comps.Bomb).
+		WithObserve(cfg.Observe)
 	return &Henbane{gate: gate, metrics: reg, background: fed.Background}, nil
 }
 

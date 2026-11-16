@@ -248,6 +248,14 @@ With `bomb.trigger: confirmed` (or `blocked`), a confirmed-hostile client that a
 
 **It is off by default and deliberately narrow.** It fires only on a confirmed-hostile tier, only for a client that advertised gzip, and is size-capped and streamed. The collateral risk is real: a CDN, a cache, an accessibility tool, or a **misidentified real browser** that sent `Accept-Encoding: gzip` would also receive it. Enable it only when you accept that trade-off.
 
+## Observe mode
+
+Aggressive bot detection has a false-positive cost — see [Effectiveness](#effectiveness) below (browsers older than ~2021–2023 can be flagged) — so **start in observe mode**. Set `observe: true` and Henbane runs the full decision pipeline and records the verdict it *would* take (logged with `observe=true`, and counted in `/metrics` by action and tier) while **serving every request normally**: nothing is challenged, tarpitted, or blocked. Watch your own traffic for a few days, confirm the would-be actions land on bots and not your users, tune `scoring` thresholds and denylists, then remove `observe` to enforce. It applies across every form factor (reverse proxy, middleware, Caddy, sidecar).
+
+```yaml
+observe: true
+```
+
 ## Effectiveness
 
 Henbane is benchmarked, and the numbers are honest — including where it falls short. Two reproducible studies back the claims (`go test ./research/...`).
@@ -370,6 +378,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [ ] HTTP/2 Akamai frame fingerprint (optional-dependency module; the zero-dep core can't read raw h2 frames)
 - [x] Verified good bots: Web Bot Auth (RFC 9421 signed agents) + reverse-DNS search crawlers (Googlebot/Bingbot), with spoofer detection
 - [x] Verified AI crawlers by published IP range (GPTBot/ChatGPT-User/OAI-SearchBot, ClaudeBot family, PerplexityBot), with spoofer detection
+- [x] Observe (dry-run) mode — record would-be verdicts without acting, for safe rollout and tuning (`observe: true`)
 - [x] Prometheus `/metrics` endpoint on a separate private listener
 - [x] `net/http` middleware form factor (`henbane.New` / `hb.Handler`, v0)
 - [x] Caddy module (`caddy/`, build with xcaddy)
