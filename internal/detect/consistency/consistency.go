@@ -16,6 +16,7 @@ package consistency
 import (
 	"strings"
 
+	"github.com/datadir-lab/henbane/h2fp"
 	"github.com/datadir-lab/henbane/internal/ports"
 )
 
@@ -26,13 +27,14 @@ type Weights struct {
 	NoAcceptLang     int // no Accept-Language
 	NoModernEncoding int // Accept-Encoding without gzip or br
 	LegacyHTTP       int // HTTP/1.1 while claiming a modern browser (needs ProtocolViewer)
+	H2Mismatch       int // HTTP/2 fingerprint whose pseudo-header order no browser uses (needs H2Fingerprinter)
 }
 
-// DefaultWeights tunes a single strong miss (missing fetch metadata or Accept)
-// to reach a Suspect-level score of 2, and two misses to compound toward
-// Confirmed at 4.
+// DefaultWeights tunes a single strong miss (missing fetch metadata, Accept, or a
+// browser-impossible HTTP/2 fingerprint) to reach a Suspect-level score of 2, and
+// two misses to compound toward Confirmed at 4.
 func DefaultWeights() Weights {
-	return Weights{NoFetchMetadata: 2, NoAccept: 2, NoAcceptLang: 1, NoModernEncoding: 1, LegacyHTTP: 1}
+	return Weights{NoFetchMetadata: 2, NoAccept: 2, NoAcceptLang: 1, NoModernEncoding: 1, LegacyHTTP: 1, H2Mismatch: 2}
 }
 
 // Scorer implements ports.Scorer.
@@ -82,6 +84,16 @@ func (s *Scorer) Score(r ports.RequestView) []ports.ScoreResult {
 	if terminatedTLS(r) {
 		if pv, ok := r.(ports.ProtocolViewer); ok && pv.HTTPMajorVersion() == 1 {
 			add("browser_mismatch:legacy_http", s.w.LegacyHTTP)
+		}
+	}
+	// The HTTP/2 fingerprint is the strongest anti-spoof signal: a client wearing a
+	// browser User-Agent whose h2 pseudo-header order is one no browser emits is not
+	// that browser. It is present only when the optional h2capture module terminated
+	// the client's HTTP/2 connection; absent (plain HTTP/1.1, behind a proxy, or no
+	// capture wired) it is silently skipped, so enabling capture is purely additive.
+	if h2, ok := r.(ports.H2Fingerprinter); ok {
+		if h2fp.ContradictsBrowser(h2.H2Fingerprint()) {
+			add("browser_mismatch:h2_fingerprint", s.w.H2Mismatch)
 		}
 	}
 	return out
