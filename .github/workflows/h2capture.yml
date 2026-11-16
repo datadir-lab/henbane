@@ -13,9 +13,9 @@ name: h2capture
 on:
   push:
     branches: [main]
-    paths: [h2capture/**, h2fp/**, henbane.go, go.mod, .github/workflows/h2capture.yml]
+    paths: [h2capture/**, h2fp/**, tlsfp/**, henbane.go, go.mod, .github/workflows/h2capture.yml]
   pull_request:
-    paths: [h2capture/**, h2fp/**, henbane.go, go.mod, .github/workflows/h2capture.yml]
+    paths: [h2capture/**, h2fp/**, tlsfp/**, henbane.go, go.mod, .github/workflows/h2capture.yml]
 
 permissions:
   contents: read
