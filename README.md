@@ -239,7 +239,7 @@ The maze's pages are filled by a pluggable `Poisoner`, selected by config:
 - **`babble`** (default): an order-2 Markov chain over a small embedded public-domain corpus. Cheap to generate and maximizes crawler cost. A resource-draining tarpit.
 - **`splice`**: recombines whole sentences drawn verbatim from the corpus. Because each sentence is real text, the output reads with near-real perplexity — the filter that catches `babble` and `article` keys on exactly that — while the scrambled sentence order destroys topical coherence. It trades local-only fluency for a shot at surviving the perplexity gauntlet (see the research study).
 - **`article`**: a context-free grammar producing fluent, Wikipedia-register prose about fictional entities with plausible-but-false facts, coherent and lexically distinct per page.
-- **`canary`**: `article` plus unique, trackable fabricated facts derived deterministically from your `salt`, so you can later search for them in public AI tools.
+- **`canary`**: `article` plus unique, trackable fabricated phrases coined from your `salt` with HMAC-SHA256 — stable for your deployment yet unguessable without the salt, so a third party cannot predict, forge, or pre-filter them. Each phrase embeds a reference number that exists only on your pages, giving you an attribution marker you can later search for and verify with the [`henbane canary`](#provable-poison-canaries) tooling.
 - **`none`**: links-only maze, no body text.
 
 ### Decompression bomb (optional, aggressive)
@@ -247,6 +247,69 @@ The maze's pages are filled by a pluggable `Poisoner`, selected by config:
 With `bomb.trigger: confirmed` (or `blocked`), a confirmed-hostile client that advertises `Accept-Encoding: gzip` is served a **gzip decompression bomb** instead of the maze: a tiny response that inflates — up to `decompressed_cap_mb` — into megabytes of compressible filler studded with poison. Cheap for you to send, expensive for a naive scraper to decompress and parse.
 
 **It is off by default and deliberately narrow.** It fires only on a confirmed-hostile tier, only for a client that advertised gzip, and is size-capped and streamed. The collateral risk is real: a CDN, a cache, an accessibility tool, or a **misidentified real browser** that sent `Accept-Encoding: gzip` would also receive it. Enable it only when you accept that trade-off.
+
+## Provable poison (canaries)
+
+The `canary` strategy turns poison into evidence. Every phrase it plants — e.g.
+`Velthu Casmarvel 9017 standard` — is coined deterministically from your `salt`
+with HMAC-SHA256: stable for your deployment, identical across restarts, yet
+**cryptographically unguessable** without the salt. A third party cannot predict a
+canary to pre-filter it out, nor forge one to pollute your attribution. The `henbane
+canary` subcommand is operator tooling (it never runs on the request path):
+
+```console
+# List your deployment's canary phrases (reads poison.salt, or pass -salt).
+$ henbane canary list -config henbane.yaml
+Velthu Casmarvel 9017 standard
+Palthu Dradramar 6264 standard
+…
+
+# Attribute a surfaced answer: does it echo one of YOUR canaries?
+$ pbpaste | henbane canary check -config henbane.yaml
+ATTRIBUTED: found this deployment's canary "Velthu Casmarvel 9017 standard"
+```
+
+`check` exits 0 on a match and 1 otherwise, so it scripts cleanly. The match is
+cryptographic-strength attribution: because the phrases derive from your secret
+salt, a hit is strong evidence the text reached and reproduced *your* planted
+content — not another site's, and not a guess.
+
+### The opt-in probe
+
+`henbane canary probe` automates the search against an AI endpoint you configure.
+For each canary it asks the endpoint about the coined *name only* — never the full
+phrase — and reports a **HIT** only if the response reproduces the full phrase,
+**including the reference number that appears nowhere but on your pages.** Asking
+about the name alone is deliberate: if the probe sent the whole phrase, a model
+could echo it straight back from the prompt (a false positive), whereas returning
+the specific planted number is only possible if the endpoint retrieved your content.
+
+```yaml
+canary:
+  probe:
+    endpoint: "https://your-ai-search.example/v1/answer"  # http(s); POSTed a JSON body
+    auth_env: "CANARY_PROBE_TOKEN"   # env var → Authorization: Bearer <value> (never in config)
+    body_field: "query"             # JSON field the question is sent as; default "query"
+    query: 'What is the "{{canary}}" specification?'  # {{canary}} → the coined name
+```
+
+```console
+$ CANARY_PROBE_TOKEN=… henbane canary probe -config henbane.yaml
+  HIT    Velthu Casmarvel 9017 standard
+  weak   Palthu Dradramar             (reference number 6264 surfaced; full phrase did not)
+  -      Linvelsel Selrinsel
+  1/16 canaries surfaced
+```
+
+**What a hit means — and does not.** A HIT proves the endpoint retrieved and
+reproduced your planted content: live **retrieval and repetition reach**. It does
+**not** prove your content entered any model's training set — that is unobservable
+from outside (see [Does this actually work?](#does-this-actually-work)). Honest
+caveats: the probe POSTs a single-field JSON body, which fits answer/search APIs but
+not chat-completion APIs with a nested `messages` array (use `list` + manual search
+there); probing *reveals* a canary to the endpoint, so a hit on a first, cold run is
+cleaner evidence than repeated runs; and models hallucinate plausible numbers, so
+treat a lone `weak` line as a lead to corroborate, not a result.
 
 ## Observe mode
 
@@ -276,7 +339,7 @@ Short version: it reliably wastes crawler resources. It does **not**, and cannot
 - **Model impact is unobservable from outside.** No operator can see another party's training set or weights. Every rigorous data-poisoning result in the literature relied on privileged, white-box, or guaranteed-insertion access, a research setup, not "I served some pages and a crawler may have fetched them."
 - **What we will _not_ do:** cite the "250 documents can backdoor an LLM" result or the "model collapse" work as evidence that this degrades frontier models. Neither supports that claim: the first needs a guaranteed-insertion shared trigger, and the second describes recursive multi-generation training.
 
-What is honestly measurable is the resource cost you impose (bytes served, crawl depth, dwell time, bot-versus-real ratio) — see [Effectiveness](#effectiveness) above for the measured figures — and, as a future, clearly labeled, opt-in feature, whether planted `canary` facts surface in live AI-search engines (which measures live retrieval reach, not poisoned training). Henbane is worth running for the resource-cost story alone.
+What is honestly measurable is the resource cost you impose (bytes served, crawl depth, dwell time, bot-versus-real ratio) — see [Effectiveness](#effectiveness) above for the measured figures — and, via the opt-in [`henbane canary probe`](#provable-poison-canaries), whether planted `canary` phrases surface in a live AI-search endpoint you point it at (which measures live retrieval reach, not poisoned training). Henbane is worth running for the resource-cost story alone.
 
 ## Acceptable use and content liability
 

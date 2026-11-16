@@ -20,6 +20,13 @@ import (
 )
 
 func main() {
+	// Subcommands are dispatched before config parsing so they never require the
+	// serving flags (e.g. --upstream). `canary` is operator tooling for the
+	// provable-poison (canary) strategy.
+	if len(os.Args) > 1 && os.Args[1] == "canary" {
+		os.Exit(runCanary(os.Args[2:], os.Stdout, os.Stderr, os.Stdin))
+	}
+
 	if maybePrintVersion(os.Args[1:], os.Stdout) {
 		return
 	}

@@ -34,6 +34,28 @@ type Poison struct {
 	Salt              string `yaml:"salt"`                // per-deployment; required for canary
 }
 
+// CanaryProbe configures the opt-in `henbane canary probe` tool, which queries a
+// configured AI-search/assistant endpoint for this deployment's canary phrases and
+// reports which ones surface. It is operator-run tooling, never consulted on the
+// request path. Endpoint is required to probe; the rest have sane defaults.
+//
+// The probe POSTs a small JSON object {"<body_field>": "<question about a canary>"}
+// and scans the response body for the canary. This fits answer/search endpoints
+// that take a single query field; chat-completion APIs with a nested messages array
+// are out of scope — for those, use `canary list` and search manually.
+type CanaryProbe struct {
+	Endpoint  string `yaml:"endpoint"`   // AI endpoint URL to POST each query to (http/https; required to probe)
+	AuthEnv   string `yaml:"auth_env"`   // env var holding a bearer token, sent as Authorization: Bearer <value>
+	Query     string `yaml:"query"`      // question template with a {{canary}} placeholder; "" => a default
+	BodyField string `yaml:"body_field"` // JSON field carrying the query; "" => "query"
+}
+
+// Canary configures the provable-poison tooling. Only the `henbane canary`
+// subcommand reads it; it has no effect on the serving path.
+type Canary struct {
+	Probe CanaryProbe `yaml:"probe"`
+}
+
 // Robots configures the robots.txt Henbane serves. When enabled it Disallows the
 // honeypot trap (so well-behaved crawlers avoid it, and any client that fetches it
 // is provably ignoring robots.txt → caught by the honeypot).
@@ -172,6 +194,7 @@ type Config struct {
 	Honeypot       Honeypot     `yaml:"honeypot"`
 	Labyrinth      Labyrinth    `yaml:"labyrinth"`
 	Poison         Poison       `yaml:"poison"`
+	Canary         Canary       `yaml:"canary"`
 	PoW            PoW          `yaml:"pow"`
 	Bomb           Bomb         `yaml:"bomb"`
 	Robots         Robots       `yaml:"robots"`
