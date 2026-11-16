@@ -13,6 +13,7 @@ Perplexity cutoff (calibrated): **618**.
 | babble (Markov) | 300 | 300 (100%) | 300 (100%) | 300 (100%) | 0 (0%) | 0 (0%) |
 | splice (embedded corpus) | 300 | 300 (100%) | 286 (95%) | 286 (95%) | 0 (0%) | 0 (0%) |
 | splice_ref (matched corpus) | 300 | 300 (100%) | 300 (100%) | 198 (66%) | 170 (57%) | 170 (57%) |
+| markov_ref (matched corpus) | 300 | 300 (100%) | 300 (100%) | 280 (93%) | 176 (59%) | 176 (59%) |
 | article (grammar) | 300 | 300 (100%) | 300 (100%) | 300 (100%) | 0 (0%) | 0 (0%) |
 | canary | 300 | 300 (100%) | 300 (100%) | 300 (100%) | 0 (0%) | 0 (0%) |
 | real text (baseline) | 300 | 300 (100%) | 300 (100%) | 231 (77%) | 210 (70%) | 89 (30%) |
@@ -26,6 +27,7 @@ Perplexity cutoff (calibrated): **618**.
 | babble (Markov) | 1934 | 1551 | 1111 | 4.0x |
 | splice (embedded corpus) | 1913 | 1695 | 1456 | 4.0x |
 | splice_ref (matched corpus) | 553 | 473 | 396 | 1.2x |
+| markov_ref (matched corpus) | 566 | 393 | 258 | 1.2x |
 | article (grammar) | 1059 | 891 | 724 | 2.2x |
 | canary | 1065 | 898 | 731 | 2.2x |
 | real text (baseline) | 479 | 393 | 296 | 1.0x |
@@ -36,7 +38,7 @@ Perplexity cutoff (calibrated): **618**.
 
 ## What the numbers say
 
-- **One strategy clears the full gauntlet: sentence-splicing over a distribution-matched corpus.** `splice_ref` (whole sentences recombined from the reference corpus, whose register matches the perplexity model) lands at 553 perplexity (1.2x real text, under the ~618 cutoff) and 57% survive through dedup. Everything else (babble (Markov), splice (embedded corpus), article (grammar), canary) is filtered ~100% at the perplexity stage.
+- **Only the distribution-matched strategies clear the full gauntlet, and it does not matter whether you splice or generate.** `splice_ref` (whole sentences recombined from the reference corpus) and `markov_ref` (a plain order-2 Markov generator over that same corpus) both land near real-text perplexity (553 and 566 vs the ~618 cutoff) and survive through dedup (57% and 59%). Everything over the *embedded* corpus (babble (Markov), splice (embedded corpus), article (grammar), canary) is filtered ~100% at the perplexity stage. The lever is the corpus, not the generator (quantified below).
 - **The lever is the corpus, not the generator.** `splice` over the *embedded* corpus scores 1913, indistinguishable from `babble`'s Markov word-salad, even though it emits whole real sentences. Keeping sentences intact buys nothing when the corpus is out-of-distribution to the filter; matching the corpus buys everything. (The generators invent coined entities that hit `<unk>`, which is why they sit 2-4x above real text.)
 - **Random recombination dodges dedup better than real text.** `splice_ref` finishes at 57% versus the real baseline's 30%: sequential real chunks overlap and dedup against each other, while randomly recombined sentences keep pages mutually distinct. Here recombination is a feature, not a bug.
 
@@ -51,6 +53,19 @@ Perplexity cutoff (calibrated): **618**.
 - **Perplexity is a trigram approximation** (option b) trained on held-out public-domain prose; a real KenLM/Wikipedia model would sharpen the absolute numbers, not the direction.
 - **These filters do not check discourse coherence.** `splice_ref`'s sentences are real but their *order* is scrambled; the Gopher/C4/perplexity/dedup gauntlet scores fluency and duplication, not whether a paragraph makes sense. A semantic-coherence filter or an LLM judge could still catch it, so treat splice as *beats the CCNet-style gauntlet*, not *undetectable*.
 - **Policy / liability.** Henbane ships only the fictional embedded corpus, which (as shown) does not survive. Pointing `splice` at a real, distribution-matched corpus is the operator's choice and liability, the same boundary as `babble`'s `corpus_path`.
+
+## Bypassing the perplexity filter: the corpus, not the generator
+
+The perplexity stage discards most generated poison (see the funnel). What does it actually take to get past it? We generate Markov text at increasing order (order 1 is a bag of words with no coherence; higher orders keep longer real spans) over two corpora: the matched reference corpus the filter's model expects, and Henbane's unmatched embedded corpus.
+
+![perplexity vs order](figures/perplexity_vs_order.png)
+
+- **Over the matched corpus, a plain Markov generator bypasses the filter from order 2.** Even order 1 (random words from the matched vocabulary, no word order at all) lands at 734, near the 618 cutoff; an order-2 chain sits at 555, comfortably under it.
+- **Over the unmatched corpus, no order helps.** Perplexity stays around 1993 at every order, far above the cutoff.
+
+So the perplexity filter scores vocabulary and local distribution, not coherence or generator sophistication. Match the corpus and even crude generation passes; mismatch it and nothing does. This is why the shipped generators (over the embedded corpus) are filtered, why `splice_ref` and `markov_ref` (both over the matched corpus) survive the full gauntlet, and why the one real lever is `poison.corpus_path` pointed at distribution-matched text.
+
+**Honest limit.** Passing perplexity is not the same as being coherent. An order-2 Markov over the matched corpus clears the filter but reads as word salad; a semantic-coherence filter or an LLM judge would still catch it. The matched-corpus requirement is the real cost, and semantic coherence is the real remaining defense, neither of which a perplexity filter captures.
 
 ## Federation: does multi-site poison add up?
 
