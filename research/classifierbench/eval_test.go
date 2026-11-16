@@ -174,18 +174,29 @@ func TestWeightTuningTradeoff(t *testing.T) {
 		edgeFP := score(tiers, nil, []class{humanEdge})
 		scrapy := tiers["scrapy"] >= ports.TierSuspect
 		stealth := tiers["stealth-scraper"] >= ports.TierSuspect
-		t.Logf("  %-28s naive %d/%d  edge-FP %d/%d  scrapy=%v  careful-scraper=%v",
+		t.Logf("  %-36s naive %d/%d  edge-FP %d/%d  scrapy=%v  careful-scraper=%v",
 			label, naive.tp, naive.tp+naive.fn, edgeFP.fp, edgeFP.fp+edgeFP.tn, caught(scrapy), caught(stealth))
 	}
+	hdr := func(fetch int) consistency.Weights { // header layer only
+		w := consistency.DefaultWeights()
+		w.H2Mismatch = 0
+		w.NoFetchMetadata = fetch
+		return w
+	}
+	h2 := func(fetch int) consistency.Weights { // header layer + the HTTP/2 fingerprint
+		w := consistency.DefaultWeights()
+		w.NoFetchMetadata = fetch
+		return w
+	}
 	t.Logf("weight-tuning tradeoff (suspect threshold 2):")
-	report("default (Sec-Fetch weight 2)", consistency.DefaultWeights())
-	corroborate := consistency.DefaultWeights()
-	corroborate.NoFetchMetadata = 1 // a lone missing Sec-Fetch no longer reaches Suspect
-	report("corroboration (weight 1)", corroborate)
-	t.Logf("  => weight 2 catches Scrapy and careful scrapers but challenges old browsers;")
-	t.Logf("     weight 1 spares old browsers but misses the single-signal scrapers. Henbane")
-	t.Logf("     keeps weight 2 because the FP cost is a one-time CHALLENGE (not a block), the")
-	t.Logf("     good-bot verifier rescues real crawlers, and the old-browser population shrinks.")
+	report("header only, Sec-Fetch weight 2", hdr(2))
+	report("header only, Sec-Fetch weight 1", hdr(1))
+	report("+ HTTP/2 signal, Sec-Fetch weight 1", h2(1))
+	t.Logf("  => At the header layer there is no free lunch: weight 2 catches the careful scraper")
+	t.Logf("     but challenges every old browser (edge-FP 3/3); weight 1 spares the old browsers")
+	t.Logf("     (edge-FP 0/3) but misses the careful scraper. The HTTP/2 fingerprint resolves it:")
+	t.Logf("     at weight 1 it still catches the careful scraper while the old browsers stay spared,")
+	t.Logf("     because the scraper's h2 fingerprint is not a browser's.")
 }
 
 func caught(b bool) string {

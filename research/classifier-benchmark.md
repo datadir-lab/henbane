@@ -19,10 +19,11 @@ not to flatter it. The headline is not a single number — it is a tradeoff.
   **1% bot rate precision is 0.03** — 97% of "catches" would be legitimate old
   browsers. The balanced-corpus F1 of 1.00 hides this entirely.
 - A **careful scraper that omits only `Sec-Fetch-Site` is header-identical to an
-  old Safari** — no *header* signal can separate them. This is the header-layer
-  ceiling. The non-header signal that *does* separate them — the **HTTP/2
-  fingerprint** — has since shipped as the optional `h2capture` module (#55); this
-  header-corpus study does not exercise it (see §2.6).
+  old Safari**: no *header* signal can separate them (the header-layer ceiling). The
+  non-header signal that *does* separate them is the **HTTP/2 fingerprint** (optional
+  `h2capture` module, #55). The corpus now carries each client's measured h2
+  fingerprint, and **§2.7** shows the signal moving the careful scraper to the tarpit
+  while every old browser stays at a challenge, with **zero new false positives**.
 - Three things make the default defensible anyway: the false-positive cost is a
   one-time **proof-of-work challenge, not a block** (every JS-capable old browser
   solves it); the **good-bot verifier rescues real crawlers** (Googlebot is
@@ -59,7 +60,8 @@ environment-dependent and only included where a client sends them by default.
 **What is measured.** The `consistency` scorer *in isolation* (not the full
 stack, which adds denylists, velocity, TLS-fp denylist, good-bot verification,
 and federation). This is deliberate: it is the hardest part to self-benchmark, so
-the corpus is built to expose where it fails.
+the corpus is built to expose where it fails. Each profile also carries its client's
+measured Akamai HTTP/2 fingerprint, so the HTTP/2 signal can be isolated (§2.7).
 
 **Metrics.** Precision / recall / F1 (positive = escalated to ≥ Suspect);
 false-positive rate measured against the *legitimate* population (modern + edge
@@ -101,10 +103,11 @@ Negatives = modern browsers only (the edge-browser FP is reported separately in 
 |---|---|---|---|
 | naive scrapers | 1.00 | 1.00 | 1.00 |
 | + careful (header-perfect) scraper | 1.00 | 1.00 | 1.00 |
-| + real headless browsers | 1.00 | **0.82** | 0.90 |
+| + real headless browsers | 1.00 | **0.83** | 0.91 |
 
-Naive and even a careful single-signal scraper are caught; real headless browsers
-(which send the full browser shape) are not — the header-layer ceiling.
+Naive and even a careful single-signal scraper are caught. Real headless browsers
+(which send the full browser shape) are not: the ceiling. §2.7 shows the HTTP/2
+fingerprint lifting the careful-scraper case above it; headless remains the gap.
 
 ### 2.2 The false-positive surface (the critical finding)
 
@@ -150,30 +153,31 @@ cheap rules don't have. They are complementary layers.
 
 ### 2.5 The weight-tuning tradeoff
 
-| Sec-Fetch weight | naive caught | edge-browser FP | Scrapy | careful h2 scraper |
-|---|---|---|---|---|
-| **2 (default)** | 8/8 | **3/3** | caught | caught |
-| 1 (corroboration) | 8/8 | **0/3** | caught | **missed** |
+| configuration | naive caught | edge-browser FP | careful scraper |
+|---|---|---|---|
+| header layer, Sec-Fetch weight **2** | 8/8 | **3/3** | caught |
+| header layer, Sec-Fetch weight **1** | 8/8 | **0/3** | **missed** |
+| **+ HTTP/2 fingerprint**, weight 1 | 8/8 | **0/3** | **caught** |
 
-Lowering the weight so a lone missing Sec-Fetch can't reach Suspect **eliminates
-the old-browser false positives but misses the careful h2 scraper** (Scrapy
-survives only because its HTTP/1.1 corroborates). There is no header-layer setting
-that catches careful scrapers without flagging old browsers, because they are the
-same bytes. Henbane keeps weight 2 because the FP is a challenge, the verifier
-rescues crawlers, and the population shrinks — but the knob is the honest lever
-for an operator who prioritises zero friction over catching careful scrapers.
+At the header layer there is no free lunch, because the careful scraper and an old
+browser are the same bytes. Weight 2 catches the scraper but flags every old
+browser (edge-FP 3/3). Weight 1 spares the old browsers (edge-FP 0/3) but misses
+the scraper. The **HTTP/2 fingerprint resolves it**: at weight 1 it still catches
+the careful scraper while the old browsers stay spared, because the scraper's h2
+fingerprint is not a browser's. Measured in `TestWeightTuningTradeoff`; the full
+breakdown is §2.7.
 
 ### 2.6 Header-layer indistinguishability
 
-`safari-15.6 → suspect`, `stealth-scraper → suspect`: identical bytes, identical
-verdict. No header feature separates a careful scraper from an old real browser.
-Separating them requires a *different layer* — TLS/HTTP-2 fingerprinting (refs
-[3][7][9]) or behaviour (ref [8]). **HTTP/2 fingerprinting has since shipped** (the
-optional `h2capture` module, #55): a careful scraper's Go/httpx HTTP/2 fingerprint
-is not a browser's — a non-header signal it cannot shed by adding headers — so the
-two are separable there even though they are identical at the header layer this
-corpus measures. Behavioural fingerprinting remains tracked future work, and
-deception handles the ones no signal can block.
+At the header layer, `safari-15.6 → suspect` and `stealth-scraper → suspect`:
+identical bytes, identical verdict. No header feature separates a careful scraper
+from an old real browser. Separating them requires a *different layer*: TLS or
+HTTP/2 fingerprinting (refs [3][7][9]), or behaviour (ref [8]). The **HTTP/2
+fingerprint shipped** (optional `h2capture` module, #55), and the corpus now carries
+each client's measured h2 fingerprint. With it on, `stealth-scraper → confirmed`
+while `safari-15.6 → suspect` stays put: the tie is broken, with no new false
+positive. §2.7 measures this. Behavioural fingerprinting remains future work for the
+headless case, and deception handles the ones no signal can block.
 
 **Quantified evasion floor.** The checks are presence-only, so the evasion cost is
 a fixed, tiny number of header lines. A default `python-requests`/`httpx` client
@@ -189,6 +193,48 @@ So the *header-layer* floor is two to three header lines. This layer is a filter
 its value is catching the large volume of scrapers that haven't bothered, not the
 ones that have. (An adversarial scorer audit established this floor; it is why the
 layer feeds a challenge and the deception stage, not a block.)
+
+### 2.7 What the HTTP/2 fingerprint adds (measured)
+
+The corpus carries each client's measured Akamai HTTP/2 fingerprint: the real
+browser-engine fingerprints for the human and old-browser profiles, and the Go,
+curl, Java, and httpx fingerprints for the libraries. Rerunning the scorer with the
+h2 signal on (`TestHTTP2Signal`) isolates its contribution.
+
+The careful scraper is the one case the header layer cannot touch: it is identical
+to an old browser, so both sit at Suspect and you cannot act on one without acting
+on the other. The h2 fingerprint breaks that tie.
+
+| client | header layer alone | with HTTP/2 fingerprint |
+|---|---|---|
+| Safari <16.4 (old browser) | suspect | **suspect** (unchanged) |
+| Firefox <90 (old browser) | suspect | **suspect** (unchanged) |
+| Chrome <76 (old browser) | suspect | **suspect** (unchanged) |
+| careful scraper, Go h2 (`a,m,p,s`) | suspect | **confirmed** |
+| careful scraper, httpx (`HEADER_TABLE_SIZE 4096`) | suspect | **confirmed** |
+
+Detection at the Confirmed (tarpit) threshold, where it matters:
+
+| | careful scrapers to tarpit | old-browser false positives |
+|---|---|---|
+| header layer alone | 0/2 | 0/3 |
+| with HTTP/2 fingerprint | **2/2** | **0/3** |
+
+The h2 signal moves both careful scrapers to the tarpit and adds **zero** false
+positives on old browsers, because an old browser carries a real browser h2
+fingerprint while a Go or httpx scraper does not. Both tells fire: the Go client by
+its `a,m,p,s` pseudo-header order (no browser leads with `:authority`), and the httpx
+client by its bare `HEADER_TABLE_SIZE 4096` even though it copies Chrome's
+pseudo-header order.
+
+What it does **not** do: catch real headless browsers. They send a genuine browser's
+h2 fingerprint, so under the h2 signal they stay at Pass, the same ceiling the header
+layer hits. Only behavioural or device fingerprinting would separate those.
+
+**Caveat.** A scraper can forge its h2 fingerprint too (curl-impersonate and
+curl_cffi do). Forging a browser-grade h2 stack is far more work than copying
+headers, so the signal raises the evasion cost sharply, but it is not a wall. That
+is why it feeds the fusion score (a challenge, then a tarpit), not an outright block.
 
 ---
 
