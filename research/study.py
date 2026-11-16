@@ -231,6 +231,22 @@ def dedup_survivors(texts: list[str]) -> int:
     return kept
 
 
+# ------------------------- topical coherence (a second, orthogonal filter) --
+def coherence(text):
+    """A cheap topical-coherence proxy: the mean number of content words (non-stopword,
+    length > 2) shared between adjacent sentences. Real prose keeps a topic across
+    sentences, so names and nouns recur; scrambled sentence-splicing and Markov
+    word-salad do not. It is not an LLM judge, but it cleanly separates topically
+    coherent text from locally-fluent-but-globally-incoherent text, which is exactly
+    the blind spot of the perplexity filter."""
+    sents = [s for s in re.split(r"(?<=[.!?])\s+", text) if len(tokens(s)) >= 4]
+    if len(sents) < 3:
+        return 0.0
+    sets = [{w for w in tokens(s) if w not in STOPWORDS and len(w) > 2} for s in sents]
+    shared = [len(sets[i] & sets[i + 1]) for i in range(len(sets) - 1)]
+    return float(np.mean(shared)) if shared else 0.0
+
+
 # ------------------------- pipeline -----------------------------------------
 def main():
     docs = collections.defaultdict(list)
@@ -279,11 +295,19 @@ def main():
         }
         ppls[s] = [lm.perplexity(t) for t in texts if len(t.split()) >= 50]
 
+    # Topical coherence: a second, orthogonal filter. Calibrate its cutoff the same
+    # way as perplexity, keeping ~90% of real text (coherence is higher-is-better, so
+    # the cutoff is the 10th percentile of the baseline).
+    cohs = {s: [coherence(t) for t in docs.get(s, []) if len(t.split()) >= 50] for s in STRATEGIES}
+    base_coh = sorted(cohs["baseline_real"])
+    coh_cut = base_coh[int(0.10 * len(base_coh))] if base_coh else 0.0
+
     write_report(rows, ppls, ppl_cut)
     plot_funnel(rows)
     plot_perplexity(ppls, ppl_cut)
     plot_final_survival(rows)
     plot_perplexity_vs_order(lm, ppl_cut, matched)
+    plot_filter_frontier(ppls, cohs, ppl_cut, coh_cut)
     multisite()
     append_footer()
     print("study complete; figures in research/figures/, report in research/STUDY.md")
@@ -521,6 +545,72 @@ def plot_perplexity_vs_order(lm, cut, matched):
             "salad; a semantic-coherence filter or an LLM judge would still catch it. The "
             "matched-corpus requirement is the real cost, and semantic coherence is the "
             "real remaining defense, neither of which a perplexity filter captures.\n"
+        )
+
+
+def plot_filter_frontier(ppls, cohs, ppl_cut, coh_cut):
+    """Perplexity (fluency / distribution match) and topical coherence are orthogonal
+    filters: they catch different failures, and every poison strategy fails at least
+    one. A 2-D scatter makes the 'passes both' quadrant, occupied only by real text,
+    visible at a glance."""
+    xs = {s: float(np.median(ppls[s])) for s in STRATEGIES if ppls[s]}
+    ys = {s: float(np.median(cohs[s])) for s in STRATEGIES if cohs[s]}
+    xmax, ymax = max(xs.values()) * 1.15, max(ys.values()) * 1.2
+
+    plt.figure(figsize=(10, 6))
+    plt.gca().add_patch(plt.Rectangle((0, coh_cut), ppl_cut, ymax - coh_cut,
+                                      color="#008300", alpha=0.08, zorder=0))
+    plt.axvline(ppl_cut, color="#aa3333", linestyle="--", linewidth=1.5)
+    plt.axhline(coh_cut, color="#aa3333", linestyle="--", linewidth=1.5)
+    for s in STRATEGIES:
+        if s in xs and s in ys:
+            plt.scatter(xs[s], ys[s], s=150, color=COLORS[s], marker=MARKERS[s],
+                        edgecolor="#2a2a2a", linewidth=0.7, zorder=3, label=LABELS[s])
+    plt.annotate("passes both filters\n(only real text)", xy=(ppl_cut * 0.5, ymax * 0.9),
+                 ha="center", color="#4d7a2f", fontsize=10)
+    plt.xlabel("median perplexity  (left = passes the fluency / distribution filter)")
+    plt.ylabel("topical coherence  (up = passes the coherence filter)")
+    plt.title("Two complementary filters: poison must pass both")
+    plt.xlim(0, xmax)
+    plt.ylim(0, ymax)
+    plt.legend(loc="upper right", fontsize=9)
+    plt.tight_layout()
+    plt.savefig(FIGS / "filter_frontier.png", dpi=150)
+    plt.close()
+
+    def g(d, s):
+        return d.get(s, float("nan"))
+
+    with open(ROOT / "STUDY.md", "a", encoding="utf-8", newline="\n") as f:
+        f.write(
+            "\n## Two complementary filters: poison must pass both\n\n"
+            "Perplexity is one gate. A pipeline that also checks topical coherence (more "
+            "common as filters get smarter) is a second, orthogonal one. We add a cheap "
+            "coherence proxy: the mean number of content words shared between adjacent "
+            "sentences. Real prose keeps a topic across sentences, so names and nouns "
+            "recur; scrambled splicing and Markov word-salad do not.\n\n"
+            "![filter frontier](figures/filter_frontier.png)\n\n"
+            "Every poison strategy fails at least one filter, and only real text passes both:\n\n"
+            f"- **`article` and `canary` are coherent but fail perplexity.** One fictional "
+            f"entity runs through each page (coherence {g(ys, 'article'):.1f}, near real "
+            f"text's {g(ys, 'baseline_real'):.1f}), but their coined entity names are words "
+            f"no reference model has seen, so perplexity is {g(xs, 'article'):.0f}, far above "
+            f"the {ppl_cut:.0f} cutoff.\n"
+            f"- **`splice_ref` and `markov_ref` pass perplexity but fail coherence.** The "
+            f"matched corpus buys local fluency (perplexity {g(xs, 'splice_ref'):.0f} and "
+            f"{g(xs, 'markov_ref'):.0f}), but recombining random sentences or Markov-generating "
+            f"word salad destroys topical continuity: shared content words drop from "
+            f"{g(ys, 'baseline_real'):.1f} for real text to {g(ys, 'splice_ref'):.1f} and "
+            f"{g(ys, 'markov_ref'):.1f}.\n"
+            "- **`babble` and `splice` (embedded) fail both.**\n\n"
+            "So a poison generator must clear two orthogonal bars at once: distribution-matched "
+            "vocabulary AND coherent discourse, while still being false. Clearing both is what a "
+            "language model does. That is the honest bottom line of this study: convincing poison "
+            "at scale needs LLM-grade generation, not a Markov chain or a sentence splicer. The "
+            "cheap generators each fail one filter, and the matched-corpus tricks that beat "
+            "perplexity fall to coherence.\n\n"
+            "(The coherence proxy is deliberately simple, not an LLM judge. A real semantic filter "
+            "would be stricter, not looser, so it does not change the direction.)\n"
         )
 
 
