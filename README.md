@@ -405,6 +405,20 @@ When Henbane terminates TLS itself (set `tls.cert`/`tls.key`), it fingerprints e
 
 The fingerprint appears in the decision log as `tls_fp`, so you can watch your traffic and then block the stacks you've confirmed are bots via `deny.tls_fingerprints` (a `403`, like the IP and UA denylists). Because the fingerprint is *coarse*, it is shared by every client using the same TLS library — list only fingerprints you've confirmed, exactly as with CIDR and UA denylists. It is unavailable (empty) when a proxy or CDN terminates TLS in front of Henbane; this is a direct-exposure feature. A full JA3 is not possible from Go's standard library, which hides the raw ClientHello.
 
+## HTTP/2 fingerprinting (optional module)
+
+The strongest anti-spoofing signal is the **HTTP/2 fingerprint** — the Akamai-style summary of the `SETTINGS`, connection `WINDOW_UPDATE`, `PRIORITY` frames, and pseudo-header order a client emits when it opens an h2 connection. These come from deep in a client's HTTP/2 engine, not from request-level options, so a scraper cannot match a browser's h2 fingerprint without replacing its whole transport. It is exactly the layer modern anti-bot stacks check below JA4.
+
+Reading the raw h2 frames needs a real HTTP/2 framer (`golang.org/x/net/http2`), which the zero-dependency core must not import — so capture lives in a **separate optional module**, `h2capture/` (the same pattern as the Caddy plugin, so its dependency never touches the core). Enable it on your server in one line when you embed Henbane:
+
+```go
+srv := &http.Server{Handler: hb.Handler(mux), TLSConfig: tlsCfg}
+h2capture.Enable(srv)   // adds h2 fingerprint capture; HTTP/1.1 is served untouched
+srv.ListenAndServeTLS(cert, key)
+```
+
+With it wired, a request wearing a browser `User-Agent` whose h2 fingerprint no browser would produce adds to its score: Go's `a,m,p,s` pseudo-header order (no browser leads with `:authority`), curl's and Java's `m,s,a,p`, or the Python-`h2` library's tell-tale `HEADER_TABLE_SIZE 4096` that httpx and Scrapy send *even while copying Chrome's pseudo-header order*. This is the signal that cracks the one case headers cannot — a careful scraper that omits only `Sec-Fetch` is otherwise header-identical to an old browser. Like every scorer signal it only raises suspicion (a challenge, not a block), and it is inert unless capture is wired and Henbane terminates the client's h2 connection directly (absent behind a CDN). Details and the measured fingerprint dataset: [`docs/design/2026-11-16-h2-fingerprint.md`](docs/design/2026-11-16-h2-fingerprint.md).
+
 ## Scoring (signal fusion)
 
 Most of the signals above are strong on their own, but the tell-tale of a modern scraper is *inconsistency*: a request that claims to be Chrome yet doesn't behave like Chrome. Spoofing a `User-Agent` is one line of code; reproducing a real browser's whole request shape is not. Enable `scoring` and Henbane stops treating signals as independent tripwires and starts **accumulating** them:
@@ -419,7 +433,7 @@ scoring:
 
 Each thing a browser-claiming client *omits* — `Sec-Fetch-Site` metadata, an `Accept` header, a language, a modern `Accept-Encoding`, HTTP/2 — adds weighted points. One miss is only worth a brief challenge; several **compound** into a confident *Confirmed*, so a stock HTTP client wearing a Chrome `User-Agent` lands in the labyrinth while a real browser sails through. Every piece of evidence is recorded in the decision log even when it doesn't escalate, so you can see *why* a client was judged. Definitive signals (denylists, honeypot) and verified good bots still win outright — scoring only ever *raises* suspicion, never lowers it.
 
-> **HTTP/2 note.** Deep HTTP/2 frame fingerprinting (the Akamai SETTINGS/priority signature) is the strongest anti-spoofing signal, but reading the raw h2 frames requires either a third-party HTTP/2 library or reimplementing the server — so it is out of scope for the zero-dependency core and tracked as a future optional-dependency module. The zero-dep protocol signal here (did the client negotiate HTTP/2 at all?) is a lighter proxy for it.
+> **HTTP/2 note.** The "HTTP/2" row above is the zero-dep protocol signal (did the client negotiate HTTP/2 at all?). The far stronger **Akamai h2 frame fingerprint** ships in the optional `h2capture/` module — see [HTTP/2 fingerprinting](#http2-fingerprinting-optional-module) above.
 
 ## Dependencies
 
@@ -438,7 +452,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Browser-hint and request-rate (velocity) suspicion signals
 - [x] TLS client fingerprinting (coarse, logged as `tls_fp`; `deny.tls_fingerprints`)
 - [x] Scoring / signal fusion — weak signals accumulate into a confident verdict (`scoring`), with browser-consistency (header + HTTP-version) checks
-- [ ] HTTP/2 Akamai frame fingerprint (optional-dependency module; the zero-dep core can't read raw h2 frames)
+- [x] HTTP/2 Akamai frame fingerprint — optional `h2capture/` module (keeps the zero-dep core clean), feeds browser-consistency scoring
 - [x] Verified good bots: Web Bot Auth (RFC 9421 signed agents) + reverse-DNS search crawlers (Googlebot/Bingbot), with spoofer detection
 - [x] Verified AI crawlers by published IP range (GPTBot/ChatGPT-User/OAI-SearchBot, ClaudeBot family, PerplexityBot), with spoofer detection
 - [x] Observe (dry-run) mode — record would-be verdicts without acting, for safe rollout and tuning (`observe: true`)

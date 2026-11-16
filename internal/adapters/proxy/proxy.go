@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/datadir-lab/henbane/h2fp"
 	"github.com/datadir-lab/henbane/internal/clientip"
 	"github.com/datadir-lab/henbane/internal/ports"
 	"github.com/datadir-lab/henbane/internal/tlsfp"
@@ -67,6 +68,12 @@ func (v requestView) Header(name string) string { return v.r.Header.Get(name) }
 // fingerprint, captured during the handshake when Henbane terminates TLS (""
 // otherwise).
 func (v requestView) TLSFingerprint() string { return tlsfp.FromContext(v.r.Context()) }
+
+// H2Fingerprint implements ports.H2Fingerprinter: the client's Akamai-style HTTP/2
+// fingerprint, captured by the optional h2capture module when Henbane terminates
+// the client's HTTP/2 connection ("" otherwise — plain HTTP/1.1, behind a proxy,
+// or without the capture module wired).
+func (v requestView) H2Fingerprint() string { return h2fp.FromContext(v.r.Context()) }
 
 // Host exposes the request authority (for RFC 9421 @authority); the Web Bot Auth
 // detector reads it through an optional interface.

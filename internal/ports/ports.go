@@ -109,6 +109,17 @@ type TLSFingerprinter interface {
 	TLSFingerprint() string
 }
 
+// H2Fingerprinter is an optional RequestView capability: the client's Akamai-style
+// HTTP/2 fingerprint (SETTINGS, connection WINDOW_UPDATE, PRIORITY frames, and
+// pseudo-header order), captured when Henbane terminates the client's HTTP/2
+// connection itself. A RequestView may implement it; consumers type-assert for it
+// and treat an absent or empty value as "unknown" — e.g. an HTTP/1.1 request, plain
+// HTTP, Henbane behind a protocol-terminating proxy, or the zero-dependency core
+// running without the optional h2capture module that performs the capture.
+type H2Fingerprinter interface {
+	H2Fingerprint() string
+}
+
 // Sink consumes decision Events. Implementations must never block the request
 // path or return request-failing errors.
 type Sink interface {

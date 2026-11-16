@@ -1,0 +1,44 @@
+# The HTTP/2 fingerprint-capture plugin is a SEPARATE Go module (h2capture/go.mod)
+# so its golang.org/x/net/http2 dependency never touches the zero-dependency main
+# module. It is built here only when the plugin or the parent packages it depends on
+# (the h2fp core package, the public henbane API) change, so the extra download stays
+# off the main CI path. It uses x/net/http2's low-level Framer/Server.ServeConn on
+# purpose — the only way to read raw h2 frames — which that package marks deprecated
+# in favour of the stdlib, so this module is vet- and test-gated, not staticcheck'd
+# (the same posture as the Caddy plugin module).
+#
+# Third-party actions are pinned to immutable commit SHAs (with a trailing version
+# comment); Dependabot (github-actions ecosystem) proposes SHA bumps.
+name: h2capture
+on:
+  push:
+    branches: [main]
+    paths: [h2capture/**, h2fp/**, henbane.go, go.mod, .github/workflows/h2capture.yml]
+  pull_request:
+    paths: [h2capture/**, h2fp/**, henbane.go, go.mod, .github/workflows/h2capture.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: h2capture
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27"
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: vet
+        run: go vet ./...
+      - name: build
+        run: go build ./...
+      - name: test
+        run: go test -race ./...
