@@ -329,7 +329,7 @@ Henbane is benchmarked, and the numbers are honest, including where it falls sho
 - The signal doing most of that work, a missing `Sec-Fetch-Site` header, also flags legitimate browsers released before Fetch Metadata shipped (Chrome <76, Firefox <90, Safari <16.4). At a 1% bot base rate, raw precision collapses toward **0.03** (the base-rate fallacy). The balanced-corpus F1 of 1.00 hides this.
 - That is why the score drives a **challenge, not a block**. The good-bot verifier rescues real crawlers, and it is one soft signal in a fusion engine.
 - At the header layer, a careful scraper that omits only `Sec-Fetch` is identical to an old Safari. The **HTTP/2 fingerprint** (optional `h2capture` module) is the non-header signal that separates them: a Go or httpx h2 shape is not a real browser's.
-- Real **headless** browsers are the remaining gap (recall 0.82 once they count as positives). They carry a genuine browser's TLS *and* HTTP/2 fingerprint, so neither layer catches them. Only behavioural/device fingerprinting would, which is future work.
+- Real **headless** browsers are the remaining gap (recall 0.83 once they count as positives). They carry a genuine browser's TLS *and* HTTP/2 fingerprint, so neither layer catches them. Only behavioural/device fingerprinting would, which is future work.
 
 **Cost** ([`research/benchmarks.md`](research/benchmarks.md)):
 
