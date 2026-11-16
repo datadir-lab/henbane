@@ -36,8 +36,8 @@ Perplexity cutoff (calibrated): **618**.
 
 ## What the numbers say
 
-- **One strategy clears the full gauntlet: sentence-splicing over a distribution-matched corpus.** `splice_ref` (whole sentences recombined from the reference corpus, whose register matches the perplexity model) lands at 553 perplexity — 1.2x real text, under the ~618 cutoff — and 57% survive through dedup. Everything else (babble (Markov), splice (embedded corpus), article (grammar), canary) is filtered ~100% at the perplexity stage.
-- **The lever is the corpus, not the generator.** `splice` over the *embedded* corpus scores 1913 — indistinguishable from `babble`'s Markov word-salad — even though it emits whole real sentences. Keeping sentences intact buys nothing when the corpus is out-of-distribution to the filter; matching the corpus buys everything. (The generators invent coined entities that hit `<unk>`, which is why they sit 2-4x above real text.)
+- **One strategy clears the full gauntlet: sentence-splicing over a distribution-matched corpus.** `splice_ref` (whole sentences recombined from the reference corpus, whose register matches the perplexity model) lands at 553 perplexity (1.2x real text, under the ~618 cutoff) and 57% survive through dedup. Everything else (babble (Markov), splice (embedded corpus), article (grammar), canary) is filtered ~100% at the perplexity stage.
+- **The lever is the corpus, not the generator.** `splice` over the *embedded* corpus scores 1913, indistinguishable from `babble`'s Markov word-salad, even though it emits whole real sentences. Keeping sentences intact buys nothing when the corpus is out-of-distribution to the filter; matching the corpus buys everything. (The generators invent coined entities that hit `<unk>`, which is why they sit 2-4x above real text.)
 - **Random recombination dodges dedup better than real text.** `splice_ref` finishes at 57% versus the real baseline's 30%: sequential real chunks overlap and dedup against each other, while randomly recombined sentences keep pages mutually distinct. Here recombination is a feature, not a bug.
 
 ## How to poison the well better (actionable)
@@ -49,8 +49,8 @@ Perplexity cutoff (calibrated): **618**.
 ## Honest caveats
 
 - **Perplexity is a trigram approximation** (option b) trained on held-out public-domain prose; a real KenLM/Wikipedia model would sharpen the absolute numbers, not the direction.
-- **These filters do not check discourse coherence.** `splice_ref`'s sentences are real but their *order* is scrambled; the Gopher/C4/perplexity/dedup gauntlet scores fluency and duplication, not whether a paragraph makes sense. A semantic-coherence filter or an LLM judge could still catch it — treat splice as *beats the CCNet-style gauntlet*, not *undetectable*.
-- **Policy / liability.** Henbane ships only the fictional embedded corpus, which (as shown) does not survive. Pointing `splice` at a real, distribution-matched corpus is the operator's choice and liability — the same boundary as `babble`'s `corpus_path`.
+- **These filters do not check discourse coherence.** `splice_ref`'s sentences are real but their *order* is scrambled; the Gopher/C4/perplexity/dedup gauntlet scores fluency and duplication, not whether a paragraph makes sense. A semantic-coherence filter or an LLM judge could still catch it, so treat splice as *beats the CCNet-style gauntlet*, not *undetectable*.
+- **Policy / liability.** Henbane ships only the fictional embedded corpus, which (as shown) does not survive. Pointing `splice` at a real, distribution-matched corpus is the operator's choice and liability, the same boundary as `babble`'s `corpus_path`.
 
 ## Federation: does multi-site poison add up?
 
@@ -60,7 +60,7 @@ Simulating **25 Henbane deployments** (20 docs each), pooled and run through cro
 
 - **With Henbane's per-deployment salt, it accumulates.** Each site's output is distinct, so the surviving-after-dedup count grows roughly linearly with the number of sites (article: 500 unique docs across 25 sites).
 - **Without a per-site salt, it collapses.** Identical sites dedup down to one site's worth (flat dashed line, ~20 docs no matter how many sites). This is *why* the generators mix a per-deployment salt into their seed.
-- **Honest caveat.** Poison from the *generators* is filtered by perplexity (above), so their cross-site volume is symbolic. The federation benefit that is **real today for every strategy** is cumulative *tarpit cost*: each site independently burns the crawler's bandwidth and compute, scaling linearly with sites, and no dedup can collapse wasted fetch work. And for the one strategy that clears the gauntlet — matched-corpus splice — this salted accumulation is exactly the mechanism by which many sites' *surviving* poison adds up instead of collapsing.
+- **Honest caveat.** Poison from the *generators* is filtered by perplexity (above), so their cross-site volume is symbolic. The federation benefit that is **real today for every strategy** is cumulative *tarpit cost*: each site independently burns the crawler's bandwidth and compute, scaling linearly with sites, and no dedup can collapse wasted fetch work. And for the one strategy that clears the gauntlet (matched-corpus splice), this salted accumulation is exactly the mechanism by which many sites' *surviving* poison adds up instead of collapsing.
 
 ---
 

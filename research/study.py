@@ -29,7 +29,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # A consistent, readable style for every figure: bold titles, a recessive grid,
-# and no top/right spines (the dataviz "render it and look at it" pass — legible
+# and no top/right spines (the dataviz "render it and look at it" pass: legible
 # labels, no clutter).
 plt.rcParams.update({
     "figure.dpi": 150,
@@ -296,7 +296,7 @@ def multisite():
             y.append(kept)
         salted_final[s] = y[-1]
         plt.plot(ks, y, marker=MARKERS[s], markersize=6, color=COLORS[s],
-                 linewidth=2, alpha=0.8, label=f"{LABELS[s]} — salted")
+                 linewidth=2, alpha=0.8, label=f"{LABELS[s]}, salted")
     # Un-salted reference: identical sites collapse to one site's worth; adding more
     # sites adds zero new uniques.
     base = survivors_in(by["article"][sites[0]])
@@ -305,7 +305,7 @@ def multisite():
     # The salted lines lie on top of each other (each site's salt makes its docs
     # unique regardless of strategy), so say so rather than leave a viewer puzzling
     # over four legend entries on one visible line.
-    plt.annotate("the four salted lines coincide —\nevery strategy accumulates identically",
+    plt.annotate("the four salted lines coincide:\nevery strategy accumulates identically",
                  xy=(ks[-1], salted_final["article"]), xytext=(0.30, 0.62),
                  textcoords="axes fraction", fontsize=10, color="#333333",
                  arrowprops=dict(arrowstyle="->", color="#888", lw=1.2))
@@ -338,7 +338,7 @@ def multisite():
             "**real today for every strategy** is cumulative *tarpit cost*: each site "
             "independently burns the crawler's bandwidth and compute, scaling linearly with "
             "sites, and no dedup can collapse wasted fetch work. And for the one strategy that "
-            "clears the gauntlet — matched-corpus splice — this salted accumulation is exactly "
+            "clears the gauntlet (matched-corpus splice), this salted accumulation is exactly "
             "the mechanism by which many sites' *surviving* poison adds up instead of "
             "collapsing.\n"
         )
@@ -462,12 +462,12 @@ def write_report(rows, ppls, cut):
               f"- **One strategy clears the full gauntlet: sentence-splicing over a "
               f"distribution-matched corpus.** `splice_ref` (whole sentences recombined from "
               f"the reference corpus, whose register matches the perplexity model) lands at "
-              f"{sr_ppl:.0f} perplexity — {sr_ppl/real_med:.1f}x real text, under the ~{cut:.0f} "
-              f"cutoff — and {sr_final:.0f}% survive through dedup. Everything else "
+              f"{sr_ppl:.0f} perplexity ({sr_ppl/real_med:.1f}x real text, under the ~{cut:.0f} "
+              f"cutoff) and {sr_final:.0f}% survive through dedup. Everything else "
               f"({', '.join(filtered)}) is filtered ~100% at the perplexity stage.",
               f"- **The lever is the corpus, not the generator.** `splice` over the *embedded* "
-              f"corpus scores {sp_ppl:.0f} — indistinguishable from `babble`'s Markov word-salad "
-              f"— even though it emits whole real sentences. Keeping sentences intact buys "
+              f"corpus scores {sp_ppl:.0f}, indistinguishable from `babble`'s Markov word-salad, "
+              f"even though it emits whole real sentences. Keeping sentences intact buys "
               f"nothing when the corpus is out-of-distribution to the filter; matching the "
               f"corpus buys everything. (The generators invent coined entities that hit `<unk>`, "
               f"which is why they sit 2-4x above real text.)",
@@ -494,11 +494,11 @@ def write_report(rows, ppls, cut):
               "- **These filters do not check discourse coherence.** `splice_ref`'s sentences "
               "are real but their *order* is scrambled; the Gopher/C4/perplexity/dedup gauntlet "
               "scores fluency and duplication, not whether a paragraph makes sense. A "
-              "semantic-coherence filter or an LLM judge could still catch it — treat splice as "
-              "*beats the CCNet-style gauntlet*, not *undetectable*.",
+              "semantic-coherence filter or an LLM judge could still catch it, so treat splice "
+              "as *beats the CCNet-style gauntlet*, not *undetectable*.",
               "- **Policy / liability.** Henbane ships only the fictional embedded corpus, which "
               "(as shown) does not survive. Pointing `splice` at a real, distribution-matched "
-              "corpus is the operator's choice and liability — the same boundary as `babble`'s "
+              "corpus is the operator's choice and liability, the same boundary as `babble`'s "
               "`corpus_path`.", ""]
     # No footer here: multisite() appends the Federation section after this, and the
     # footer is written last (append_footer) so it stays at the bottom of the page.
