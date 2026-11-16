@@ -1,6 +1,8 @@
 /henbane
 /henbane.exe
 /emit.exe
+/h2capture/henbane-h2
+/h2capture/henbane-h2.exe
 *.out
 /dist/
 .idea/

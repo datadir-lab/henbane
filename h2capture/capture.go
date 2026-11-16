@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/datadir-lab/henbane/h2fp"
+	"github.com/datadir-lab/henbane/tlsfp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 )
@@ -87,9 +88,16 @@ func ensureALPN(protos []string) []string {
 
 // serveH2 sniffs the fingerprint from c's preface, then serves the whole connection
 // with x/net/http2, replaying the sniffed bytes so the server sees an untouched
-// stream. The fingerprint is attached to every request's context.
+// stream. Both the HTTP/2 fingerprint and (when c came through tlsfp.WrapListener)
+// the client's TLS fingerprint are attached to every request's context.
 func serveH2(srv *http.Server, h2s *http2.Server, c *tls.Conn, handler http.Handler) {
 	fp, buffered := sniff(c, defaultSniffTimeout)
+
+	// x/net/http2 builds its own request contexts, so net/http's ConnContext (the
+	// path that normally carries the TLS fingerprint) never runs for this connection.
+	// Read the fingerprint — already computed during the handshake — straight off the
+	// connection and re-attach it below so the engine still sees it on HTTP/2 requests.
+	tlsFP := tlsfp.FromConn(c)
 
 	// Replay: the server re-reads the exact original byte stream (the bytes we
 	// buffered during sniffing, then the live connection). MultiReader reconstructs
@@ -99,17 +107,22 @@ func serveH2(srv *http.Server, h2s *http2.Server, c *tls.Conn, handler http.Hand
 
 	h2s.ServeConn(replay, &http2.ServeConnOpts{
 		BaseConfig: srv,
-		Handler:    withFingerprint(handler, fp),
+		Handler:    withFingerprints(handler, fp, tlsFP),
 	})
 }
 
-// withFingerprint wraps h so every request it serves carries fp in its context.
-func withFingerprint(h http.Handler, fp string) http.Handler {
-	if fp == "" {
+// withFingerprints wraps h so every request it serves carries the HTTP/2 fingerprint
+// (h2FP) and, when non-empty, the TLS fingerprint (tlsFP) in its context. Empty
+// fingerprints are not attached, so a client that was not fingerprinted is unaffected.
+func withFingerprints(h http.Handler, h2FP, tlsFP string) http.Handler {
+	if h2FP == "" && tlsFP == "" {
 		return h
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h.ServeHTTP(w, r.WithContext(h2fp.WithFingerprint(r.Context(), fp)))
+		ctx := r.Context()
+		ctx = h2fp.WithFingerprint(ctx, h2FP)
+		ctx = tlsfp.WithFingerprint(ctx, tlsFP)
+		h.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

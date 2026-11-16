@@ -19,6 +19,8 @@ import (
 
 	"github.com/datadir-lab/henbane"
 	"github.com/datadir-lab/henbane/h2capture"
+	"github.com/datadir-lab/henbane/h2fp"
+	"github.com/datadir-lab/henbane/tlsfp"
 	"golang.org/x/net/http2"
 )
 
@@ -147,5 +149,63 @@ func TestFingerprintDrivesHenbaneVerdict(t *testing.T) {
 	honest := do(t, "my-crawler/1.0", false)
 	if strings.Contains(honest, `"tier":"suspect"`) || strings.Contains(honest, `"tier":"confirmed"`) {
 		t.Errorf("an honest non-browser client must not be flagged by the h2 signal; decision log:\n%s", honest)
+	}
+}
+
+// TestTLSFingerprintPropagatesOverHTTP2 proves the module carries the client's TLS
+// fingerprint onto an HTTP/2 request. x/net/http2 serves the connection itself and
+// builds its own request contexts, so net/http's ConnContext (the HTTP/1.1 path for
+// the TLS fingerprint) never runs for it — the module must re-attach the fingerprint.
+// ConnContext is deliberately NOT wired here, so a non-empty TLS fingerprint on the
+// served request can only have come from the module's h2-specific propagation.
+func TestTLSFingerprintPropagatesOverHTTP2(t *testing.T) {
+	type fps struct{ h2, tls string }
+	got := make(chan fps, 1)
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- fps{h2: h2fp.FromContext(r.Context()), tls: tlsfp.FromContext(r.Context())}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	srv := &http.Server{
+		Handler:   h,
+		TLSConfig: tlsfp.DecorateConfig(&tls.Config{Certificates: []tls.Certificate{integrationCert(t)}}),
+	}
+	h2capture.Enable(srv)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Wrap the raw listener so each connection carries a fingerprint holder; ServeTLS
+	// then layers TLS over it using srv.TLSConfig (which DecorateConfig computes the
+	// fingerprint into during the handshake).
+	go func() { _ = srv.ServeTLS(tlsfp.WrapListener(ln), "", "") }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	client := &http.Client{Transport: &http2.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"h2"}},
+	}}
+	defer client.Transport.(*http2.Transport).CloseIdleConnections()
+
+	resp, err := client.Get("https://" + ln.Addr().String() + "/")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.ProtoMajor != 2 {
+		t.Fatalf("expected HTTP/2, got %d", resp.ProtoMajor)
+	}
+
+	select {
+	case f := <-got:
+		if f.h2 == "" {
+			t.Error("HTTP/2 fingerprint should be captured on the request, got empty")
+		}
+		if f.tls == "" {
+			t.Error("TLS fingerprint should propagate onto the HTTP/2 request, got empty")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler was not invoked")
 	}
 }

@@ -91,6 +91,25 @@ the stdlib, but the stdlib is precisely what cannot read raw frames, so the
 deprecated API is the only option; the module is therefore vet/test-gated in CI, not
 staticcheck'd (the same posture as `caddy/`), with its own `h2capture.yml` workflow.
 
+### Standalone `henbane-h2` binary (both fingerprints)
+
+`h2capture/cmd/henbane-h2` is a drop-in reverse proxy for operators who want the HTTP/2
+signal without embedding Henbane in Go code. It reads the same `henbane.yaml` and runs
+the same engine as the shipped binary, terminates TLS, and calls `Enable`, so it
+captures the HTTP/2 fingerprint **and** the TLS fingerprint. It requires `tls.cert` and
+`tls.key` (HTTP/2 fingerprinting needs direct TLS termination) and lives in the
+`h2capture` module so the `x/net/http2` dependency never reaches the zero-dep core. The
+shipped core binary still captures only the TLS fingerprint; this binary is the way to
+get both from a prebuilt artifact.
+
+For the TLS fingerprint to reach h2 requests, `tlsfp` is now an exported package
+(parallel to `h2fp`). An HTTP/2 connection is served by `x/net/http2`, which builds its
+own request contexts and never runs net/http's `ConnContext`, the path that normally
+carries the TLS fingerprint. The module closes that gap: the handshake has completed by
+the time ALPN dispatch runs, so it reads the already-computed fingerprint off the
+connection with `tlsfp.FromConn` and re-attaches it with `tlsfp.WithFingerprint`. Both
+`tls_fp` and the h2 fingerprint are therefore present on every captured h2 request.
+
 ## Consuming the signal
 
 The engine reads the fingerprint through a new optional capability,
@@ -156,7 +175,9 @@ unvetted public fingerprint dumps, one of which was found to be self-contradicto
 - `h2capture` (module): an **end-to-end** test, a real `x/net/http2` client against an
   `Enable`'d server asserts the handler observes a well-formed fingerprint with the
   Go client's canonical `a,m,p,s` order, and that an HTTP/1.1 request carries none.
-  Run under `-race`.
+  A second e2e test wires `tlsfp.WrapListener` + `Enable` and asserts an HTTP/2 request
+  carries both the h2 fingerprint and the TLS fingerprint, pinning the cross-protocol
+  propagation. Run under `-race`.
 - Consistency scorer: browser-UA + non-browser h2 order adds the h2 point; a real
   browser order does not; absent fingerprint is inert.
 
@@ -165,8 +186,8 @@ unvetted public fingerprint dumps, one of which was found to be self-contradicto
 - No change to the zero-dep core's dependency surface; the signal is dormant until an
   operator runs `h2capture.Enable`.
 - The capture module targets direct TLS+h2 termination. Co-propagating the TLS
-  fingerprint onto captured h2 connections (so both signals are present together) is a
-  straightforward follow-up but out of scope here.
+  fingerprint onto captured h2 connections (so both signals are present together) is
+  now implemented, and shipped as the standalone `henbane-h2` binary (see above).
 - A full per-UA-family fingerprint allowlist (contradiction detection across every
   field, not just pseudo-order) is a richer future dataset; this slice ships the
   highest-signal, lowest-drift field first.

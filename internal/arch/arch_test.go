@@ -41,6 +41,7 @@ func TestCorePurity(t *testing.T) {
 		mainModule + "/internal/generate/poison/canary",
 		mainModule + "/internal/pow",
 		mainModule + "/h2fp",
+		mainModule + "/tlsfp",
 	}
 
 	for _, target := range targets {
