@@ -67,6 +67,22 @@ So the perplexity filter scores vocabulary and local distribution, not coherence
 
 **Honest limit.** Passing perplexity is not the same as being coherent. An order-2 Markov over the matched corpus clears the filter but reads as word salad; a semantic-coherence filter or an LLM judge would still catch it. The matched-corpus requirement is the real cost, and semantic coherence is the real remaining defense, neither of which a perplexity filter captures.
 
+## Two complementary filters: poison must pass both
+
+Perplexity is one gate. A pipeline that also checks topical coherence (more common as filters get smarter) is a second, orthogonal one. We add a cheap coherence proxy: the mean number of content words shared between adjacent sentences. Real prose keeps a topic across sentences, so names and nouns recur; scrambled splicing and Markov word-salad do not.
+
+![filter frontier](figures/filter_frontier.png)
+
+Every poison strategy fails at least one filter, and only real text passes both:
+
+- **`article` and `canary` are coherent but fail perplexity.** One fictional entity runs through each page (coherence 1.4, near real text's 1.6), but their coined entity names are words no reference model has seen, so perplexity is 1059, far above the 618 cutoff.
+- **`splice_ref` and `markov_ref` pass perplexity but fail coherence.** The matched corpus buys local fluency (perplexity 553 and 566), but recombining random sentences or Markov-generating word salad destroys topical continuity: shared content words drop from 1.6 for real text to 0.3 and 0.3.
+- **`babble` and `splice` (embedded) fail both.**
+
+So a poison generator must clear two orthogonal bars at once: distribution-matched vocabulary AND coherent discourse, while still being false. Clearing both is what a language model does. That is the honest bottom line of this study: convincing poison at scale needs LLM-grade generation, not a Markov chain or a sentence splicer. The cheap generators each fail one filter, and the matched-corpus tricks that beat perplexity fall to coherence.
+
+(The coherence proxy is deliberately simple, not an LLM judge. A real semantic filter would be stricter, not looser, so it does not change the direction.)
+
 ## Federation: does multi-site poison add up?
 
 Simulating **25 Henbane deployments** (20 docs each), pooled and run through cross-site MinHash dedup. The question the [strategy](../docs/STRATEGY.md) hinges on: when many sites poison together, does the volume accumulate, or does dedup collapse it?
