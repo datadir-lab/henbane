@@ -1,19 +1,19 @@
-# Henbane — Logo Design Brief
+# Henbane: Logo Design Brief
 
 - **Status:** Approved brief (ready to execute)
 - **Date:** 2026-11-14
 - **Project dir:** `D:\dev\hacktivism\poison\henbane`
-- **Scope:** Visual identity (logo) for the `henbane` project — standalone, not the
+- **Scope:** Visual identity (logo) for the `henbane` project: standalone, not the
   broader Poison Garden family system.
 
 ---
 
 ## 1. Concept & mood
 
-An **antique herbal-engraving specimen** of henbane (*Hyoscyamus niger*) — beautiful but
+An **antique herbal-engraving specimen** of henbane (*Hyoscyamus niger*): beautiful but
 faintly sinister. It reads as *apothecary / poison garden*: a poison plant drawn with the
 care of a 17th-century botanical plate, standing guard. The mark signals the project's
-nature without a word — henbane is a gateway that poisons abusive scrapers, and the logo
+nature without a word: henbane is a gateway that poisons abusive scrapers, and the logo
 is, fittingly, a poison plant.
 
 **Adjectives:** botanical, engraved, apothecary, restrained, a little sinister, crafted.
@@ -31,10 +31,10 @@ is, fittingly, a poison plant.
 
 ## 3. The mark (hero)
 
-- **Subject:** a focused flower sprig — a single bell/funnel bloom with visible
+- **Subject:** a focused flower sprig: a single bell/funnel bloom with visible
   net-veining and a dark throat, above the characteristic row of urn-shaped seed-pod
   capsules on one upright stem. A couple of leaves for silhouette, kept minimal.
-- **Rendering:** monochrome **ink engraving** — contour linework plus engraving hatching
+- **Rendering:** monochrome **ink engraving**: contour linework plus engraving hatching
   for shading (parallel/cross-hatch in the throat and pod shadows). Disciplined detail:
   enough to feel like a real plate, not so much it muddies.
 - **Color:** single color via `currentColor`. No gradients, no multiple fills.
@@ -46,7 +46,7 @@ is, fittingly, a poison plant.
 A reduced, one-color derivative of the hero that survives small sizes and the one-color
 test:
 - Keep the bell flower + one pod (the recognizable silhouette DNA of the hero).
-- Drop fine hatching; thicken strokes; simplify veins to 2–3 strokes.
+- Drop fine hatching; thicken strokes; simplify veins to 2-3 strokes.
 - Verified legible at **16px** and as a solid one-color shape.
 - Ships as `currentColor` SVG; PNG favicon sizes (16/32/180/512) generated from it with
   sizing guidance.
@@ -63,12 +63,12 @@ test:
 
 ## 6. Deliverables
 
-- `henbane-hero.svg` — detailed engraving mark (`currentColor`).
-- `henbane-glyph.svg` — simplified favicon/app glyph (`currentColor`).
-- `henbane-lockup.svg` — horizontal glyph + wordmark; plus a stacked variant.
+- `henbane-hero.svg`: detailed engraving mark (`currentColor`).
+- `henbane-glyph.svg`: simplified favicon/app glyph (`currentColor`).
+- `henbane-lockup.svg`: horizontal glyph + wordmark; plus a stacked variant.
 - Favicon set + sizing guidance (16/32/180/512 PNG from the glyph).
 - An HTML **preview page** showing every asset at real sizes, in light and dark.
-- *(optional)* `henbane.ascii` — a terminal/CLI startup banner (sprig + wordmark) for the
+- *(optional)* `henbane.ascii`: a terminal/CLI startup banner (sprig + wordmark) for the
   `henbane` CLI.
 
 Proposed home in the repo: `assets/logo/` (or `brand/`), decided at execution time.
@@ -78,18 +78,18 @@ Proposed home in the repo: `assets/logo/` (or `brand/`), decided at execution ti
 - Single color via `currentColor`; no hard-coded palette in the shipping marks.
 - Clean, minimal `viewBox`; no stray transforms or editor cruft.
 - Wordmark text converted to outlines (or an explicit, safe fallback stack).
-- **Must pass the 16px test and the one-color test** — the glyph is tuned specifically
+- **Must pass the 16px test and the one-color test**: the glyph is tuned specifically
   for this; the hero degrades gracefully to the glyph when too small.
 - Optical correction over mathematical centering where they disagree.
 
 ## 8. Open / deferred
 
-- Exact repo location for assets (`assets/logo/` vs `brand/`) — decide at execution.
-- Whether to ship the ASCII banner now or defer — optional.
+- Exact repo location for assets (`assets/logo/` vs `brand/`): decide at execution.
+- Whether to ship the ASCII banner now or defer: optional.
 - Natural-color "poison palette" plate (sulphur petals / oxblood veins) is explicitly
   **out of scope** for v1; monochrome is the system. Could be a future hero-image variant.
 
 ## 9. Next step
 
 Execute with the `making-svg-logos` skill: draft the hero engraving, derive the glyph,
-build the lockups, and render the preview page — then iterate on the visual candidates.
+build the lockups, and render the preview page, then iterate on the visual candidates.

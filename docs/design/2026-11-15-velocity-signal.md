@@ -14,13 +14,13 @@ the detector fires. The window then rolls over on the next request after it
 elapses.
 
 - **Resolved IP only.** The detector keys on `RequestView.IP()`, which is the
-  trusted-proxy–resolved client address (`.Unmap()`ed so an IPv4-in-IPv6 form
+  trusted-proxy-resolved client address (`.Unmap()`ed so an IPv4-in-IPv6 form
   cannot split a client's rate). A spoofed `X-Forwarded-For` cannot shift or
-  dodge the count unless the operator has mis-trusted the proxy — the same
+  dodge the count unless the operator has mis-trusted the proxy, the same
   boundary every other IP-keyed detector depends on.
 - **Hard-bounded store.** The counter map is capped at `max_tracked` entries.
   At capacity, inserting a new IP first evicts expired windows, then one
-  arbitrary entry — a memory bound against counter-flooding from many source
+  arbitrary entry, a memory bound against counter-flooding from many source
   IPs (mirrors `flagstore`). Invalid IPs are never tracked.
 - **No unbounded growth per IP.** The per-IP count saturates at `limit+1`, so a
   sustained flood inside one window cannot overflow the counter.
@@ -34,7 +34,7 @@ response is the operator's choice of graduated-response rung:
 - `tier: suspect` (default) → **Challenge** (PoW toll). The gentlest response:
   a real browser solves one proof-of-work and continues; a flood crawler pays
   CPU per request. Recoverable for the common (JS browser) false positive.
-- `tier: confirmed` → **Tarpit** (labyrinth/poison). Standalone — needs no PoW.
+- `tier: confirmed` → **Tarpit** (labyrinth/poison). Standalone, needs no PoW.
   Trips a fast crawler straight into the maze. A legitimate shared-IP false
   positive is *not* recoverable (they get garbage), so this is opt-in, not the
   default.
@@ -64,7 +64,7 @@ browsing while still catching sustained crawlers; tune per deployment.
 
 ## Scope / non-goals
 
-- No sliding-log or token-bucket accounting — a fixed window is cheap, bounded,
+- No sliding-log or token-bucket accounting. A fixed window is cheap, bounded,
   and sufficient to populate a tier. (Documented approximation, like the
   perplexity trigram in the study.)
 - No per-path exclusions or method weighting (YAGNI); operators who need that

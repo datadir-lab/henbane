@@ -22,15 +22,15 @@ forwards, so the classifier sees the real path, method, host, and client IP:
 | Client IP | `X-Forwarded-For` (via `trusted_proxies`) |
 
 Henbane trusts **only** these canonical `X-Forwarded-*` names (not `X-Original-*`
-aliases). Your front proxy **must overwrite** them — nginx `proxy_set_header` and
-Traefik's `forwardAuth` both do — so a client cannot forge a value the proxy
+aliases). Your front proxy **must overwrite** them (nginx `proxy_set_header` and
+Traefik's `forwardAuth` both do), so a client cannot forge a value the proxy
 didn't set. A forwarded URI that is present but unparseable is rejected (fail
 closed), never evaluated as the auth endpoint's own path.
 
 ## Security
 
 - **Bind the sidecar to your internal network** (e.g. `listen: "127.0.0.1:8080"`
-  or a private interface). Only the front proxy should reach it — these forwarded
+  or a private interface). Only the front proxy should reach it: these forwarded
   headers are authoritative only because the proxy sets them; a client that could
   reach the sidecar directly, **or** a proxy that forwards rather than overwrites
   `X-Forwarded-Uri`, could forge the request path and bypass path-based rules
@@ -94,7 +94,7 @@ server {
         proxy_pass http://backend;
     }
 
-    # Internal auth subrequest — forwards the original request's identity.
+    # Internal auth subrequest: forwards the original request's identity.
     # proxy_set_header OVERWRITES any client-supplied value, so a client cannot
     # forge X-Forwarded-Uri to make the engine evaluate a different (allowed) path.
     location = /henbane_auth {
@@ -117,7 +117,7 @@ server {
         proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
     }
 
-    # Proof-of-work solution endpoint — straight to Henbane so it can set the cookie.
+    # Proof-of-work solution endpoint: straight to Henbane so it can set the cookie.
     location = /.well-known/henbane/verify {
         proxy_pass http://henbane/.well-known/henbane/verify;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -133,7 +133,7 @@ server {
   the front proxy on later requests, which the auth check then passes.
 - **Tarpit / poison**: the maze and poison are served as the deny body. Because a
   `2xx` auth response means "allow" to the front proxy, the maze cannot be served
-  with a `200` here — it is delivered with the deny status. If you want the maze
+  with a `200` here. It is delivered with the deny status. If you want the maze
   served as a normal `200` page (and to meter bytes-into-tarpit precisely), run
   Henbane as the reverse proxy or Caddy module instead; the sidecar is first and
   foremost an authorization gate for infrastructure you already run.

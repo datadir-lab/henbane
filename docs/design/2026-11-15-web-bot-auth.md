@@ -23,26 +23,26 @@ and `Signature-Agent` (the directory URL). The verifier:
 
 Keys come from operator-configured agent directories (`webbotauth.directories`),
 fetched from each origin's `/.well-known/http-message-signatures-directory` at
-startup. Only operator-listed directories are fetched — an attacker's
+startup. Only operator-listed directories are fetched. An attacker's
 `Signature-Agent` URL is never fetched, which avoids an SSRF/DoS vector.
 
 Failure is always safe: a wrong base, unknown key, or expired signature makes
-verification return false, so the request is treated as *not a verified agent* —
+verification return false, so the request is treated as *not a verified agent*,
 never as a trusted one. A forgery can never pass (Ed25519 is sound).
 
 ## Integration
 
 - Ed25519 only (the profile Cloudflare's verifier and signer use).
 - A `ports`-less optional `hoster` interface (`Host() string`), implemented by
-  `proxy.requestView`, supplies the `@authority` the signature covers — no change
-  to the core `RequestView` interface.
+  `proxy.requestView`, supplies the `@authority` the signature covers, with no
+  change to the core `RequestView` interface.
 - The detector fires `webbotauth.tier` (`block`/`confirmed`/`suspect`) with a
   signal carrying the verified directory origin. `suspect` requires a PoW gate
   (as with velocity).
 - Wired through `assembly.WebBotAuth` (shared by the CLI and the library), which
   does the startup directory fetch; keys refresh on restart.
 
-## Validation — the crux
+## Validation: the crux
 
 The risk in this feature is the signature base: a one-byte deviation makes real
 agents fail to verify. It was validated against the canonical implementation,
@@ -57,7 +57,7 @@ not just self-consistency:
 Doing this surfaced the one non-obvious detail: the real covered set is
 `("@authority" "signature-agent";key="sig1")`, and the `signature-agent`
 component value is the Dictionary **member including its parameters**
-(`"https://…";type=directory`), not the bare string — which the fixture caught
+(`"https://…";type=directory`), not the bare string, which the fixture caught
 immediately.
 
 ## Scope / future

@@ -1,4 +1,4 @@
-# Henbane — Design Document
+# Henbane: Design Document
 
 - **Status:** Draft for review
 - **Date:** 2026-11-13
@@ -10,16 +10,16 @@
 ## 1. Summary
 
 **Henbane** is a self-hostable, configurable gateway that defends websites against
-abusive AI scrapers. It combines three defensive *postures* — a **proof-of-work (PoW)
+abusive AI scrapers. It combines three defensive *postures*, a **proof-of-work (PoW)
 challenge**, a **labyrinth** (infinite maze of links), and **poison** (Markov/garbage
-content that corrupts scraped datasets) — behind a **tiered classifier** that decides,
+content that corrupts scraped datasets), behind a **tiered classifier** that decides,
 per request, who gets let through untouched and who gets escalated.
 
 The same engine ships in three *form factors*: a **standalone reverse proxy**, an
 **embeddable `net/http` middleware library**, and a **proxy plugin** (native Caddy
 module; nginx/Traefik via sidecar + ForwardAuth). Every decision emits a structured
-**Event** consumed by pluggable **sinks** (logs, fail2ban, Prometheus metrics, and —
-later — a dashboard and the federated *Poison Garden* feed).
+**Event** consumed by pluggable **sinks** (logs, fail2ban, Prometheus metrics, and
+later a dashboard and the federated *Poison Garden* feed).
 
 It is written in **Go**, with a **near-zero third-party dependency** policy (stdlib
 only, save a short vetted allowlist).
@@ -28,7 +28,7 @@ only, save a short vetted allowlist).
 
 ### Goals
 - Protect a site's real content and infrastructure from abusive AI crawlers.
-- **Minimize collateral damage to humans** — the explicit wedge against challenge-everyone
+- **Minimize collateral damage to humans**: the explicit wedge against challenge-everyone
   tools like Anubis. Default behavior lets real humans through untouched.
 - One engine, three form factors, consistent behavior across all.
 - Themeable challenge/trap pages (custom HTML, image, branding).
@@ -38,8 +38,8 @@ only, save a short vetted allowlist).
 
 ### Non-Goals (v1)
 - A hosted/SaaS offering. Henbane is self-hosted.
-- A built-in dashboard UI (v2 — the data path is designed now).
-- The Poison Garden federated feed itself (v2 — only the sink interface + disabled stub now).
+- A built-in dashboard UI (v2, the data path is designed now).
+- The Poison Garden federated feed itself (v2, only the sink interface + disabled stub now).
 - ML-based detection (v1 uses deterministic signals).
 - Being a general-purpose WAF. Scope is AI-scraper defense.
 - Offensive use (injecting poison into third-party pipelines). Henbane only acts on
@@ -57,13 +57,13 @@ only, save a short vetted allowlist).
 ## 4. Core Concepts
 
 ### 4.1 Postures (actions)
-- **Challenge** — serve a PoW challenge; must be solved before reaching real content.
-- **Tarpit (labyrinth)** — serve an endless tree of generated links; waste crawl budget.
-- **Poison** — fill trap pages with plausible Markov/garbage text to corrupt datasets.
-- **Block** — 403 / connection drop.
-- **Allow** — serve real content, untouched.
+- **Challenge**: serve a PoW challenge; must be solved before reaching real content.
+- **Tarpit (labyrinth)**: serve an endless tree of generated links; waste crawl budget.
+- **Poison**: fill trap pages with plausible Markov/garbage text to corrupt datasets.
+- **Block**: 403 / connection drop.
+- **Allow**: serve real content, untouched.
 
-### 4.2 Tiers (targeting model — option "C", tiered + configurable)
+### 4.2 Tiers (targeting model: option "C", tiered + configurable)
 
 | Tier | Who lands here | Default action |
 |---|---|---|
@@ -81,7 +81,7 @@ baseline up (e.g. treat all unknown clients as Suspect → "challenge everyone" 
 
 ```
 internal/
-  core/        # domain: classifier, tier/policy engine, verdict — NO transport imports
+  core/        # domain: classifier, tier/policy engine, verdict, NO transport imports
   ports/       # interfaces: RequestView, Sink, ContentStore, Clock, StateStore
   generate/    # content generators: challenge page, labyrinth, poison (Markov)
   pow/         # hashcash-style issue/verify; wasm client build
@@ -103,7 +103,7 @@ each other. `generate` and `pow` depend only on stdlib + `ports`.
 ### 5.2 The decision contract
 
 ```go
-// ports — transport-agnostic, read-only view of a request
+// ports, transport-agnostic, read-only view of a request
 type RequestView interface {
     IP() netip.Addr
     UserAgent() string
@@ -151,43 +151,43 @@ and fan the returned `Event`s to the configured sinks.
 ### 6.1 Classifier / policy engine (`core`)
 Deterministic signal evaluation producing a `Tier`, then a configurable mapping to an
 `Action`. v1 signals:
-- **UA allowlist / denylist** — explicit good/bad user agents.
-- **Verified good bots** — optional reverse-DNS/forward-confirmed check for Googlebot etc. (stdlib `net`).
-- **Known AI-crawler ranges** — bundled, updatable list of published crawler **CIDRs** (OpenAI, Anthropic, Google-Extended, etc.), matched via `net/netip`.
-- **Honeypot tripwire** — hidden links (meta-hidden from legit indexers, CSS-hidden from humans); any client fetching one is **Confirmed**.
-- **Rate** — per-IP token-bucket (hand-rolled, stdlib) raising Suspect on bursts.
+- **UA allowlist / denylist**: explicit good/bad user agents.
+- **Verified good bots**: optional reverse-DNS/forward-confirmed check for Googlebot etc. (stdlib `net`).
+- **Known AI-crawler ranges**: bundled, updatable list of published crawler **CIDRs** (OpenAI, Anthropic, Google-Extended, etc.), matched via `net/netip`.
+- **Honeypot tripwire**: hidden links (meta-hidden from legit indexers, CSS-hidden from humans); any client fetching one is **Confirmed**.
+- **Rate**: per-IP token-bucket (hand-rolled, stdlib) raising Suspect on bursts.
 
 Signals compose into the highest applicable tier. All thresholds/lists are config-driven.
 
 ### 6.2 Content generators (`generate`)
-- **Challenge page** — `html/template`, fully themeable (see §8.3).
-- **Labyrinth** — deterministic infinite link tree, seeded per-path so it's stable but unbounded; `robots`/`nofollow`-safe so legit indexers that *do* honor directives are not harmed, and configurably excluded from verified good bots.
-- **Poison** — Markov-chain text generator (stdlib only) producing plausible prose to fill labyrinth pages. Seed corpora are operator-configurable; a default neutral corpus ships. `PoisonBytes` is metered per response.
+- **Challenge page**: `html/template`, fully themeable (see §8.3).
+- **Labyrinth**: deterministic infinite link tree, seeded per-path so it's stable but unbounded; `robots`/`nofollow`-safe so legit indexers that *do* honor directives are not harmed, and configurably excluded from verified good bots.
+- **Poison**: Markov-chain text generator (stdlib only) producing plausible prose to fill labyrinth pages. Seed corpora are operator-configurable; a default neutral corpus ships. `PoisonBytes` is metered per response.
 
 ### 6.3 Proof of work (`pow`)
 - Hashcash-style challenge (`crypto/sha256`); difficulty configurable; HashX/argon profiles are post-v1.
-- **Token issue/verify** via `crypto/hmac` + `crypto/rand` — signed, expiring cookie proving a solved challenge, so humans solve at most once per session.
-- **Client solver** compiled from Go to WASM (`GOOS=js GOARCH=wasm`, `syscall/js`) — no Rust, no third-party.
+- **Token issue/verify** via `crypto/hmac` + `crypto/rand`, signed, expiring cookie proving a solved challenge, so humans solve at most once per session.
+- **Client solver** compiled from Go to WASM (`GOOS=js GOARCH=wasm`, `syscall/js`), no Rust, no third-party.
 - **Accessibility:** a configurable non-JS fallback path (e.g. a slower server-verified alternative or allow-with-logging) so the tool degrades instead of hard-blocking no-JS clients. This is a deliberate improvement over Anubis.
 
 ### 6.4 Sinks (`adapters/sink`)
-- **log** — `log/slog`; JSON or human-readable renderer of `Event`.
-- **fail2ban** — stable, greppable line + shipped `filter.d/henbane.conf` and a jail snippet. Henbane also keeps its own denylist for the Block verdict, so firewall banning is optional.
-- **prometheus** — `/metrics` in text exposition format, hand-formatted (no `client_golang`).
-- **reporter (v2 stub)** — interface present, disabled; later pushes Confirmed fingerprints to The Poison Garden.
+- **log**: `log/slog`; JSON or human-readable renderer of `Event`.
+- **fail2ban**: stable, greppable line + shipped `filter.d/henbane.conf` and a jail snippet. Henbane also keeps its own denylist for the Block verdict, so firewall banning is optional.
+- **prometheus**: `/metrics` in text exposition format, hand-formatted (no `client_golang`).
+- **reporter (v2 stub)**: interface present, disabled; later pushes Confirmed fingerprints to The Poison Garden.
 - Sinks are non-blocking and must never fail the request path.
 
 ### 6.5 Adapters
-- **Standalone proxy** — `net/http/httputil.ReverseProxy`; also runs in **ForwardAuth/`auth_request` mode** so nginx and Traefik can delegate decisions to it as a sidecar.
-- **Middleware** — `net/http` middleware wrapping any `http.Handler`; same core.
-- **Caddy module** — native Caddy plugin in the **isolated `caddy/` module**; the only place third-party (Caddy) imports are allowed.
+- **Standalone proxy**: `net/http/httputil.ReverseProxy`; also runs in **ForwardAuth/`auth_request` mode** so nginx and Traefik can delegate decisions to it as a sidecar.
+- **Middleware**: `net/http` middleware wrapping any `http.Handler`; same core.
+- **Caddy module**: native Caddy plugin in the **isolated `caddy/` module**; the only place third-party (Caddy) imports are allowed.
 
 ## 7. Dependency Policy
 
 - **Target: stdlib only** for the core/standalone/middleware module.
 - **Allowlist** (the CI guard fails on anything *not* here):
-  - `gopkg.in/yaml.v3` — config parsing.
-  - `golang.org/x/crypto/acme/autocert` — optional, off-by-default auto-HTTPS.
+  - `gopkg.in/yaml.v3`, config parsing.
+  - `golang.org/x/crypto/acme/autocert`, optional, off-by-default auto-HTTPS.
 - The **Caddy module** is a *separate* Go module; its (unavoidable) Caddy dependencies are
   out of scope for the core allowlist.
 - Rationale: a tool that fights surveillance must not itself be a supply-chain liability.
@@ -315,16 +315,16 @@ in CI. Enables automated changelog/semver later.
   attack third-party systems.
 - **Collateral-damage minimization** is a design goal: humans pass by default; PoW has a
   configurable no-JS fallback; labyrinth/poison apply only to the Confirmed tier.
-- **Legal:** operators serve their own content and traps on their own infrastructure —
+- **Legal:** operators serve their own content and traps on their own infrastructure,
   the clean side of the line. Docs will state scope and caution against misuse.
 
 ## 12. The Poison Garden (future, v2)
 A federated feed where Henbane nodes contribute Confirmed bot fingerprints and consume a
-shared denylist — giving small sites network-scale detection without a central CDN. v1
+shared denylist, giving small sites network-scale detection without a central CDN. v1
 plants the seam only: the **reporter sink interface** exists and ships disabled. Sibling
 modules may later take other poison-plant names (Belladonna, Mandrake, Hemlock).
 
-## 13. MVP Scope — Vertical Slices
+## 13. MVP Scope: Vertical Slices
 Each slice is end-to-end, TDD'd, and shippable. MVP may be declared done at any slice ≥8.
 
 | # | Slice | Proves |
@@ -342,8 +342,8 @@ Each slice is end-to-end, TDD'd, and shippable. MVP may be declared done at any 
 | 10 | Caddy module (isolated) + sidecar/ForwardAuth docs for nginx/Traefik | all three form factors |
 | 11 | Poison Garden reporter sink interface + disabled stub | federation seam, no debt |
 
-Slices 0–8 = a complete standalone gateway (all three postures + observability).
-9–11 complete the form factors and plant the federation seam.
+Slices 0-8 = a complete standalone gateway (all three postures + observability).
+9-11 complete the form factors and plant the federation seam.
 
 ## 14. Open Questions / Future Work
 - Markov quality vs. cost; alternative poison strategies (templated plausible-but-wrong facts).

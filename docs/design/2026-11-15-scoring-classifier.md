@@ -7,24 +7,24 @@
 Henbane's pitch is that its *classifier* is the differentiator vs. single-trick
 tools. But the engine was `max()` over independent detectors: each one raised the
 tier on its own, and signals never combined. A real adversary beats each tripwire
-in isolation — and the most common evasion (spoofing a browser `User-Agent`)
+in isolation, and the most common evasion (spoofing a browser `User-Agent`)
 tripped at most one weak signal. The engine couldn't express "a datacenter IP
 *and* a browser-UA-with-no-Sec-Fetch *and* HTTP/1.1 is a confident bot, but any
 one alone is not."
 
 ## Approach: a `Scorer` seam + weighted accumulation
 
-Additive to the existing engine — the `Detector` and `Verifier` seams are
+Additive to the existing engine. The `Detector` and `Verifier` seams are
 untouched:
 
-- **`ports.Scorer`** returns `[]ScoreResult{Signal, Points}` — soft evidence, not
+- **`ports.Scorer`** returns `[]ScoreResult{Signal, Points}`: soft evidence, not
   a verdict. The engine sums every scorer's points; the total escalates the tier
   to Suspect at `suspect_threshold` and Confirmed at `confirm_threshold`.
 - Scoring runs **after** the detectors and **only raises** the tier, so a
   definitive detector (honeypot, denylist) or a verifier short-circuit (verified
   good bot / impostor) always wins.
 - Every scorer signal is recorded on the Event even when the total stays below a
-  threshold, so the decision log shows *why* — the evidence, not just the verdict.
+  threshold, so the decision log shows *why*: the evidence, not just the verdict.
 
 Thresholds default to 2 (Suspect → challenge) and 4 (Confirmed → tarpit+poison),
 tuned so one strong mismatch costs a brief PoW while two compound into the maze.
@@ -42,7 +42,7 @@ is on to avoid double-counting.
 
 ## Why not deep HTTP/2 fingerprinting (yet)
 
-The strongest anti-spoofing signal is the **Akamai HTTP/2 fingerprint** — a
+The strongest anti-spoofing signal is the **Akamai HTTP/2 fingerprint**: a
 client's `SETTINGS` frame (values + order), connection `WINDOW_UPDATE` increment,
 `PRIORITY` tree, and pseudo-header order (`:method,:authority,:scheme,:path`).
 These are emitted deep in the HTTP/2 engine and are **not request-level options**,
@@ -55,7 +55,7 @@ transport. Worked examples from the research:
 - Go `net/http`: `2:0;4:4194304;6:10485760|1073741824|0|a,m,p,s` (the `a,m,p,s`
   pseudo-header order is the dead giveaway of a stdlib bot)
 
-The first three fields need **no HPACK** — they're in the plaintext connection
+The first three fields need **no HPACK**: they're in the plaintext connection
 preface frames. **But to read any of them, something must see the raw HTTP/2 byte
 stream before the server parses it.** Go's stdlib makes that impossible
 zero-dep: `http.Server` couples HTTP/2 to the concrete `*tls.Conn` type (wrap it
@@ -65,11 +65,11 @@ h2 fingerprinting needs either `golang.org/x/net/http2`'s Framer (a third-party
 dependency, forbidden in the core) or a hand-rolled h2 server.
 
 **Decision:** keep it out of the zero-dep core and track it as a future
-**optional-dependency module** (the same pattern as the Caddy plugin — a separate
+**optional-dependency module** (the same pattern as the Caddy plugin, a separate
 Go module so its deps never touch the core). The zero-dep protocol signal ("did
 the client negotiate HTTP/2 at all?") is a lighter stand-in that scoring already
 uses. JA4H (method/version/cookie/referer/header-count/Accept-Language) is a
-partial zero-dep option for a later slice — though Go's header map loses the
+partial zero-dep option for a later slice, though Go's header map loses the
 header *order* that JA4H's strongest component needs.
 
 ## Tests
@@ -79,10 +79,10 @@ header *order* that JA4H's strongest component needs.
   inert-when-disabled, verifier-short-circuits-before-scoring.
 - Consistency scorer: real browser scores 0, non-browser UA ignored, bare bot
   compounds, single miss is Suspect-level, protocol signal present/absent.
-- **End-to-end** (`cmd/henbane`): a real HTTP client through the full stack — a
+- **End-to-end** (`cmd/henbane`): a real HTTP client through the full stack. A
   well-formed browser request reaches the upstream, one missing header is
   challenged, and a bare client wearing a Chrome UA is tarpitted (not passed, not
-  merely challenged) — proving the compounding a `max()` engine can't do.
+  merely challenged), proving the compounding a `max()` engine can't do.
 
 ## Config
 

@@ -3,15 +3,15 @@
 ## Goal
 
 Ship Henbane as a Go library a developer can drop into their own `net/http`
-server — the second of the three form factors (standalone proxy, embeddable
+server. This is the second of the three form factors (standalone proxy, embeddable
 middleware, Caddy/nginx plugin). Adoption is the strategy's moat: more sites
 running Henbane means more imposed crawler cost and the only path to poison
 mattering at scale.
 
 ## API (researched against the ecosystem)
 
-The Go middleware consensus — `justinas/alice`, `go-chi`, and especially
-`unrolled/secure` (the closest analog: a security middleware) — is:
+The Go middleware consensus (`justinas/alice`, `go-chi`, and especially
+`unrolled/secure`, the closest analog, a security middleware) is:
 
 - The wrapper type is `func(http.Handler) http.Handler`.
 - Construct a configured instance with `New(opts)`, then expose a `.Handler(next)`
@@ -44,7 +44,7 @@ is a later option if the ergonomics warrant it.
 
 ## Internal refactor (no behavior change)
 
-The two form factors must run the *same* decision logic — duplicating security
+The two form factors must run the *same* decision logic. Duplicating security
 dispatch would be a drift hazard. So:
 
 1. **Shared gate.** The proxy's `ServeHTTP` body moved into `serve(w, r, origin)`,

@@ -27,7 +27,7 @@ address the issue before any public disclosure.
 ## Scope
 
 In scope: the gateway engine, detectors, client-IP resolution, the proxy
-adapter, token/PoW handling, and configuration parsing — anywhere untrusted
+adapter, token/PoW handling, and configuration parsing: anywhere untrusted
 input reaches a decision, log, or response.
 
 Out of scope: operator misconfiguration explicitly documented as the operator's

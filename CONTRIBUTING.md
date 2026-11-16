@@ -1,6 +1,6 @@
 # Contributing to Henbane
 
-Thanks for your interest in Henbane. This project has a few firm constraints —
+Thanks for your interest in Henbane. This project has a few firm constraints;
 reading them first will save a round-trip in review.
 
 ## Ground rules
@@ -8,7 +8,7 @@ reading them first will save a round-trip in review.
 - **Zero third-party runtime dependencies.** The module must build on the Go
   standard library alone, plus the single allowlisted config dependency
   (`gopkg.in/yaml.v3`). New imports outside the allowlist fail an architecture
-  test by design. Dev/CI tools invoked via `go run`/`go install` are fine —
+  test by design. Dev/CI tools invoked via `go run`/`go install` are fine;
   they are not compiled into the binary.
 - **Hexagonal architecture.** `internal/ports` and the domain/core packages stay
   transport-pure: no `net/http`, no adapters, no config, no client-IP code.
@@ -22,7 +22,7 @@ reading them first will save a round-trip in review.
 
 1. Branch from `main`.
 2. Make focused changes with tests.
-3. Run the local checks below — they mirror CI.
+3. Run the local checks below. They mirror CI.
 4. Open a PR into `main`. Keep it scoped to one logical change.
 
 ## Local checks

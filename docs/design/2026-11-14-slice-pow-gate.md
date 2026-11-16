@@ -1,4 +1,4 @@
-# Henbane Slice — Proof-of-Work Gate (Design Addendum)
+# Henbane Slice: Proof-of-Work Gate (Design Addendum)
 
 - **Status:** Draft for review
 - **Date:** 2026-11-14
@@ -8,13 +8,13 @@
 ## Goal
 
 Implement the `Challenge` action: a Hashcash-style **proof-of-work gate** that makes a
-suspicious client's browser solve a small puzzle before it's let through — cheap for a
+suspicious client's browser solve a small puzzle before it's let through. Cheap for a
 human (~2 s), expensive for a crawler reading millions of pages. Stateless (HMAC tokens,
 no storage), zero-dependency (stdlib `crypto/*`), and wired into the existing branded
 challenge page.
 
 Honest framing (per research / STRATEGY.md): PoW is **leaky individually** (one solve =
-a session per IP; native solvers beat browser JS) — its value is the *toll* and, at
+a session per IP; native solvers beat browser JS). Its value is the *toll* and, at
 scale, **federation**. We ship it as a real, graduated, low-false-positive-cost gate, not
 a silver bullet.
 
@@ -40,7 +40,7 @@ a silver bullet.
    and returns `Allow` (no challenge). Fully stateless.
 
 **Secret:** `pow.secret` (config). If empty, generated from `crypto/rand` at startup
-(tokens then reset on restart and differ per instance — fine single-node; set an explicit
+(tokens then reset on restart and differ per instance, fine single-node; set an explicit
 secret for multi-instance/persistent).
 
 **Difficulty:** `pow.difficulty_bits` leading zero bits (default 20 ≈ ~1 M hashes ≈ a
@@ -48,7 +48,7 @@ couple seconds in-browser). Bounded `[8, 32]`.
 
 ## Privacy reconciliation (the branded page says "no cookies")
 
-The access token **is** a cookie — but an **opaque HMAC** of `(expiry, ipHash)`: no
+The access token **is** a cookie, but an **opaque HMAC** of `(expiry, ipHash)`: no
 identifier, no account, no cross-site value, no tracking, dropped at TTL. We keep the
 privacy promise but make it accurate. Update `challenge.html` footer:
 
@@ -57,13 +57,13 @@ privacy promise but make it accurate. Update `challenge.html` footer:
 
 and the lead copy's "with no login and nothing tracked" stays true.
 
-## Trigger — who gets challenged
+## Trigger: who gets challenged
 
 New config `pow.mode`:
-- `off` (default) — gate disabled.
-- `suspect` — challenge `TierSuspect` requests (populated later by the signals-detector
+- `off` (default): gate disabled.
+- `suspect`: challenge `TierSuspect` requests (populated later by the signals-detector
   slice).
-- `all` — challenge **every** request that isn't `Allow`-via-token, `Confirmed`
+- `all`: challenge **every** request that isn't `Allow`-via-token, `Confirmed`
   (honeypot → tarpit), or `Blocked` (denylist → 403). This is the design's documented
   "challenge everyone" posture and makes the gate useful **now**, before the signals slice.
 
@@ -86,10 +86,10 @@ active `pow.mode`, routes to `ActionChallenge`.
 - **Short challenge expiry** (default 5 min) bounds solve-farming/replay; access TTL
   configurable (default 1 h, like Anubis).
 - **IP-bound** challenge + access tokens (hash of the resolved client IP via the existing
-  `clientip` resolver) — a solved token can't be shared to another IP. (Caveat, documented:
+  `clientip` resolver): a solved token can't be shared to another IP. (Caveat, documented:
   NAT / changing mobile IP → re-challenge.)
 - **Bounded verify endpoint:** cap request body, reject malformed/oversized fast; the
-  verify + token checks are O(1) and cheap — the server never does PoW work.
+  verify + token checks are O(1) and cheap. The server never does PoW work.
 - **Difficulty + body-size + nonce-length bounds**; fail closed on any parse error.
 - Secret never logged; tokens are opaque.
 - The gate only ever *adds* a `Challenge`/token-check step; a client with a valid token is

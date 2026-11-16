@@ -5,7 +5,7 @@
 The poison-survival study (`research/STUDY.md`) found that a word-trigram
 **perplexity** filter catches 100% of every existing strategy: real text sits
 at ~1.0× the cutoff, grammar (`article`) at ~2.2×, Markov (`babble`) at ~4.0×.
-Generated text — however fluent locally — carries a statistical fingerprint the
+Generated text, however fluent locally, carries a statistical fingerprint the
 filter keys on. The study's recommendation for a non-LLM improvement was to stop
 *generating* tokens and instead *recombine real ones*.
 
@@ -18,7 +18,7 @@ filter keys on. The study's recommendation for a non-LLM improvement was to stop
 2. Per page, deterministically sample sentences from the pool and concatenate
    them into paragraphs.
 
-Each sentence is real text, so every in-sentence trigram is a real trigram — the
+Each sentence is real text, so every in-sentence trigram is a real trigram, so the
 output's perplexity should approach real text and clear the filter that catches
 `babble`/`article`. The poison is in the *arrangement*: unrelated sentences in
 one paragraph destroy topical coherence, so a model training on it learns false
@@ -26,7 +26,7 @@ associations rather than facts.
 
 The trade-off is explicit: `splice` buys perplexity-survival at the cost of
 local-only fluency (no paragraph-level argument), and leans on a different
-weakness than the generators — it is vulnerable to exact/near-duplicate dedup if
+weakness than the generators: it is vulnerable to exact/near-duplicate dedup if
 the same sentences recur across pages, which the per-(seed, salt) sampling and
 the study's MinHash pass both probe.
 
@@ -41,7 +41,7 @@ Mirrors `babble`'s shape exactly, including honoring an operator `corpus_path`.
 
 Add `splice` to `research/emit` and re-run the study. The honest headline to
 confirm or refute: **does splice land below the perplexity cutoff** where every
-generator failed? Whatever the number, record it in `STUDY.md` — a splice that
+generator failed? Whatever the number, record it in `STUDY.md`. A splice that
 still filters is as useful a finding as one that survives.
 
 ## Policy

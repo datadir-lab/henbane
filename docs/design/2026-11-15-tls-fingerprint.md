@@ -8,7 +8,7 @@ and headless tools present TLS characteristics that differ from real browsers.
 
 ## What's possible with the standard library
 
-Go's `crypto/tls` hides the raw ClientHello, so a **full JA3 is not possible** —
+Go's `crypto/tls` hides the raw ClientHello, so a **full JA3 is not possible**:
 the exact extension list and ordering are unavailable. But `tls.ClientHelloInfo`
 exposes cipher suites, supported groups/curves, EC point formats, ALPN,
 signature schemes, and versions. A hash of those is a **coarse** fingerprint:
@@ -46,16 +46,16 @@ first read, then `ServeHTTP`), so the holder needs no synchronization.
 
 ## The signal
 
-`deny.tls_fingerprints` blocks (`403`) clients whose fingerprint matches — the
+`deny.tls_fingerprints` blocks (`403`) clients whose fingerprint matches, the
 same operator-curated denylist model as `deny.cidrs`/`deny.user_agents`. Because
 a coarse fingerprint is shared by every client of the same TLS library, the
 operator lists only fingerprints they've confirmed (seen in the `tls_fp` log).
 A future signal could auto-flag UA↔TLS inconsistency, or federation could share
-fingerprint lists — both build on this capture + log.
+fingerprint lists. Both build on this capture + log.
 
 ## Verification
 
 `internal/tlsfp` drives a real TLS handshake and asserts the handler sees a
 16-hex fingerprint; the detector and the `Event` population are unit-tested; and
-the full binary was smoke-tested over TLS — two curl requests both logged
+the full binary was smoke-tested over TLS: two curl requests both logged
 `tls_fp=de7fd8549b99c53c` (stable), confirming capture → event → log end to end.
