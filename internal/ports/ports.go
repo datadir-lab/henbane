@@ -87,6 +87,9 @@ type Event struct {
 	PoWMillis      int64
 	PoisonBytes    int64
 	TLSFingerprint string
+	// Observed is set in observe mode: Action is the action that WOULD have been
+	// taken, but the request was served normally (no challenge/tarpit/block).
+	Observed bool
 }
 
 // RequestView is a read-only, transport-agnostic view of an inbound request.

@@ -328,3 +328,29 @@ func TestGateWrapTarpitServesMazeNotNext(t *testing.T) {
 		t.Errorf("tarpit should serve the maze once, hits=%d body=%q", maze.hits, rec.Body.String())
 	}
 }
+
+func TestObserveModeServesButRecordsWouldBe(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "UPSTREAM")
+	}))
+	defer up.Close()
+	u, _ := url.Parse(up.URL)
+	rs := &recordingSink{}
+	// The engine would BLOCK, but observe mode must serve the request normally.
+	eng := fakeEngine{verdict: ports.Verdict{Action: ports.ActionBlock, Tier: ports.TierBlocked}, events: []ports.Event{{}}}
+	h := New(u, eng, []ports.Sink{rs}, discardLogger(), clientip.NewResolver(nil), &fakeMaze{}, PoW{}, Bomb{}).
+		WithObserve(true)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/x", nil))
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "UPSTREAM" {
+		t.Errorf("observe mode must serve the request normally, got %d %q", rec.Code, rec.Body.String())
+	}
+	if len(rs.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(rs.events))
+	}
+	if rs.events[0].Action != ports.ActionBlock || !rs.events[0].Observed {
+		t.Errorf("event = action=%v observed=%v, want block + observed", rs.events[0].Action, rs.events[0].Observed)
+	}
+}
