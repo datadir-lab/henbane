@@ -28,13 +28,18 @@ type Weights struct {
 	NoModernEncoding int // Accept-Encoding without gzip or br
 	LegacyHTTP       int // HTTP/1.1 while claiming a modern browser (needs ProtocolViewer)
 	H2Mismatch       int // HTTP/2 fingerprint whose pseudo-header order no browser uses (needs H2Fingerprinter)
+	AutomationUA     int // User-Agent carries a self-identifying automation token (e.g. HeadlessChrome)
 }
 
 // DefaultWeights tunes a single strong miss (missing fetch metadata, Accept, or a
 // browser-impossible HTTP/2 fingerprint) to reach a Suspect-level score of 2, and
-// two misses to compound toward Confirmed at 4.
+// two misses to compound toward Confirmed at 4. The automation-UA marker is weighted
+// the same (2, a challenge on its own): it is definitive that the client is automated,
+// but a thin legitimate population (Lighthouse, PageSpeed, uptime monitors) also ships
+// a HeadlessChrome UA, so it earns a challenge rather than an outright tarpit, and
+// compounds to Confirmed only alongside another mismatch.
 func DefaultWeights() Weights {
-	return Weights{NoFetchMetadata: 2, NoAccept: 2, NoAcceptLang: 1, NoModernEncoding: 1, LegacyHTTP: 1, H2Mismatch: 2}
+	return Weights{NoFetchMetadata: 2, NoAccept: 2, NoAcceptLang: 1, NoModernEncoding: 1, LegacyHTTP: 1, H2Mismatch: 2, AutomationUA: 2}
 }
 
 // Scorer implements ports.Scorer.
@@ -57,6 +62,14 @@ func (s *Scorer) Score(r ports.RequestView) []ports.ScoreResult {
 		if pts > 0 {
 			out = append(out, ports.ScoreResult{Signal: ports.Signal(sig), Points: pts})
 		}
+	}
+	// A browser-claiming UA that also carries a self-identifying automation token is
+	// not weak evidence: no real browser emits "HeadlessChrome". It catches only the
+	// naive automation that leaves its default UA in place (a custom UA removes the
+	// token); sophisticated headless is left to the TLS/HTTP2 fingerprints and, beyond
+	// those, to behavioural analysis a reverse proxy cannot do. See the design doc.
+	if hasAutomationMarker(r.UserAgent()) {
+		add("browser_mismatch:automation_ua", s.w.AutomationUA)
 	}
 	if r.Header("Sec-Fetch-Site") == "" {
 		add("browser_mismatch:no_fetch_metadata", s.w.NoFetchMetadata)
@@ -105,6 +118,23 @@ func (s *Scorer) Score(r ports.RequestView) []ports.ScoreResult {
 func terminatedTLS(r ports.RequestView) bool {
 	f, ok := r.(ports.TLSFingerprinter)
 	return ok && f.TLSFingerprint() != ""
+}
+
+// automationMarkers are tokens that only automated/headless clients put in a
+// User-Agent; no shipping graphical browser emits them. "HeadlessChrome" is the
+// default UA token of headless Chrome (Puppeteer, Playwright, Selenium, Lighthouse);
+// PhantomJS and SlimerJS are the legacy scripted-browser engines. Matched
+// case-sensitively, exactly as the tools emit them, so an ordinary UA cannot trip it.
+var automationMarkers = []string{"HeadlessChrome", "PhantomJS", "SlimerJS"}
+
+// hasAutomationMarker reports whether ua carries a self-identifying automation token.
+func hasAutomationMarker(ua string) bool {
+	for _, m := range automationMarkers {
+		if strings.Contains(ua, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // claimsBrowser reports whether ua looks like a mainstream graphical browser: a
