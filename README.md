@@ -11,18 +11,20 @@
 
 <p align="center">
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-2f5233">
-  <img alt="Go 1.26+" src="https://img.shields.io/badge/go-1.26%2B-2f5233">
+  <img alt="Go 1.27+" src="https://img.shields.io/badge/go-1.27%2B-2f5233">
   <img alt="Dependencies: stdlib + yaml" src="https://img.shields.io/badge/deps-stdlib%20%2B%20yaml-2f5233">
-  <img alt="Status: early development" src="https://img.shields.io/badge/status-early%20development-8fae63">
+  <img alt="Status: pre-1.0" src="https://img.shields.io/badge/status-pre--1.0-8fae63">
 </p>
 
 ---
 
-Scrapers that train AI models now hit small sites thousands of times an hour. They ignore `robots.txt`, run up the hosting bill, and copy content wholesale. Henbane sits in front of your site as a reverse proxy, identifies hostile automated crawlers, and depending on how confident it is either bans them or detains them in an endless maze of generated pages seeded with poison text.
+Scrapers that train AI models now hit small sites thousands of times an hour. They ignore `robots.txt`, run up the hosting bill, and copy content wholesale.
+
+Henbane sits in front of your site as a reverse proxy. It identifies hostile automated crawlers and, depending on how confident it is, either bans them or detains them in an endless maze of generated pages seeded with poison text.
 
 The design point is restraint. Tools that make every visitor solve a proof-of-work puzzle also punish people on no-JS browsers, screen readers, and old devices. Henbane acts only on traffic that proves itself hostile, so a real reader passes through without noticing it is there.
 
-> **Status: early, under active development.** Built and tested today: the reverse proxy, IP and User-Agent denylists, a honeypot trap detector, the labyrinth maze, three poison generators, and a proof-of-work challenge gate. Prometheus metrics and the middleware and Caddy form factors are planned, not yet built. Zero third-party runtime dependencies (standard library only, plus `gopkg.in/yaml.v3` for config). Not production ready.
+> **Status: pre-1.0, under active development.** Everything documented here is built and tested: four serving form factors (reverse proxy, `net/http` middleware, Caddy module, nginx/Traefik sidecar), four poison strategies, the proof-of-work gate, the full classifier, Prometheus metrics, and federation. The embeddable Go API is v0 and may change before a tagged 1.0. Zero third-party runtime dependencies (standard library plus `gopkg.in/yaml.v3` for config).
 
 ## How it works
 
@@ -35,11 +37,17 @@ Every request is classified into a tier, and the tier picks an action.
 | `Confirmed` | tripped a honeypot trap | **Tarpit** | `200`, a labyrinth maze page with poison text, no ban |
 | `Blocked` | on a denylist (IP or UA) | **Block** | `403`, plus a fail2ban ban line if configured |
 
-The split is deliberate. A denylisted actor is banished (403 and fail2ban). A honeypot-confirmed crawler is detained instead: the aim is to keep it crawling the maze and spending its own budget, so banning it would be counterproductive. If `robots.serve` is on, Henbane publishes a `/robots.txt` that `Disallow`s the honeypot trap: well-behaved crawlers avoid it, so any client that fetches it is provably ignoring `robots.txt` — and gets confirmed as a bad bot.
+The split is deliberate:
 
-A proof-of-work tier challenges suspicious clients — or everyone, with `pow.mode: all`. The browser solves a small puzzle once, is remembered by an anonymous session cookie, and passes through; a crawler reading a million pages pays it a million times. It is off by default.
+- A denylisted actor is banished (`403` and fail2ban).
+- A honeypot-confirmed crawler is detained instead. The aim is to keep it crawling the maze and spending its own budget, so banning it would be counterproductive.
 
-A request-velocity signal classifies any client IP that exceeds `velocity.requests` within `velocity.window`. The counter is keyed on the resolved client IP and hard-bounded in memory. Because it is a weaker signal than a trap hit — shared NAT, CDNs, and asset-heavy pages all inflate a single IP's rate — the response is the operator's choice: `tier: suspect` makes a fast client pay the proof-of-work toll (recoverable for a real browser), while `tier: confirmed` trips it straight into the tarpit. Note the counter sees *every* request including subresources, so tune `requests` above a heavy human session or keep static assets off the proxied path. Off by default.
+With `robots.serve` on, Henbane publishes a `/robots.txt` that `Disallow`s the honeypot trap. Well-behaved crawlers avoid it, so any client that fetches it is provably ignoring `robots.txt` and gets confirmed as a bad bot.
+
+Two optional suspicion signals feed the `Suspect` tier:
+
+- **Proof-of-work** (`pow.mode: suspect`, or `all` for everyone). The browser solves a small puzzle once, is remembered by an anonymous session cookie, and passes through. A crawler reading a million pages pays it a million times. Off by default.
+- **Request velocity** (`velocity.enabled`). Any client IP that exceeds `velocity.requests` within `velocity.window` is classified at `velocity.tier`. This is a weaker signal than a trap hit (shared NAT, CDNs, and asset-heavy pages all inflate a single IP's rate), so `tier: suspect` makes a fast client pay the recoverable PoW toll while `tier: confirmed` trips it into the tarpit. The counter sees every request including subresources, so set `requests` above a heavy human session or keep static assets off the proxied path. Off by default.
 
 ## Quick start
 
@@ -52,7 +60,7 @@ go build -o henbane ./cmd/henbane
 ./henbane --upstream http://127.0.0.1:8081
 ```
 
-Flags: `--upstream` (required), `--listen` (default `:8080`), `--config`. Flag values override the config file. The binary is static (`CGO_ENABLED=0`); a distroless `Dockerfile` is included.
+Flags: `--upstream` (required), `--listen` (default `:8080`), `--config`. Flag values override the config file. The binary is static (`CGO_ENABLED=0`), and a distroless `Dockerfile` is included.
 
 ## Install
 
@@ -70,11 +78,11 @@ docker run -p 8080:8080 ghcr.io/datadir-lab/henbane --upstream http://host.docke
 ```
 
 **Binaries:** download the archive for your platform from the
-[latest release](https://github.com/datadir-lab/henbane/releases/latest), then verify it (below).
+[latest release](https://github.com/datadir-lab/henbane/releases/latest), then verify it (see [Verifying releases](#verifying-releases)).
 
 ## Embed in your Go app
 
-Henbane is also an embeddable `net/http` middleware — the same engine the CLI runs, wrapping your own handlers instead of a reverse-proxy upstream:
+Henbane is also an embeddable `net/http` middleware. It runs the same engine the CLI runs, wrapping your own handlers instead of a reverse-proxy upstream:
 
 ```go
 import "github.com/datadir-lab/henbane"
@@ -89,15 +97,18 @@ if err != nil {
 }
 
 mux.Handle("/", hb.Handler(app))           // net/http
-// r.Use(hb.Handler)                        // chi / alice — Handler is func(http.Handler) http.Handler
+// r.Use(hb.Handler)                        // chi / alice: Handler is func(http.Handler) http.Handler
 adminMux.Handle("/metrics", hb.MetricsHandler())
 ```
 
-Allowed requests fall through to your handler; suspect/confirmed/blocked requests are challenged, tarpitted, or blocked first. Build **one** `*Henbane` and reuse it across routes — it holds the shared protection state. If you configure [federation](#federation), call `hb.Start(ctx)` once with a context tied to your server's lifetime to activate its background tasks (feed refresh + reporting); cancelling the context stops them. The package is **v0/experimental** (the API may change before a tagged 1.0).
+- Allowed requests fall through to your handler. Suspect, confirmed, and blocked requests are challenged, tarpitted, or blocked first.
+- Build **one** `*Henbane` and reuse it across routes. It holds the shared protection state.
+- If you use [federation](#federation), call `hb.Start(ctx)` once with a context tied to your server's lifetime to run its background tasks (feed refresh, reporting). Cancelling the context stops them.
+- The package is v0 and experimental. The API may change before a tagged 1.0.
 
 ### Caddy plugin
 
-Henbane is also a [Caddy v2](https://caddyserver.com) HTTP handler module, in its own Go module (`caddy/`) so Caddy's large dependency tree never touches the zero-dependency core. Build it into Caddy with [xcaddy](https://github.com/caddyserver/xcaddy):
+Henbane is also a [Caddy v2](https://caddyserver.com) HTTP handler module. It lives in its own Go module (`caddy/`) so Caddy's large dependency tree never touches the zero-dependency core. Build it into Caddy with [xcaddy](https://github.com/caddyserver/xcaddy):
 
 ```bash
 xcaddy build --with github.com/datadir-lab/henbane/caddy
@@ -112,19 +123,22 @@ example.com {
 }
 ```
 
-Requests Henbane allows continue down the handler chain (to `reverse_proxy` here); the rest are challenged, tarpitted, or blocked first. With no config file the directive is passive.
+Requests Henbane allows continue down the handler chain (to `reverse_proxy` here). The rest are challenged, tarpitted, or blocked first. With no config file the directive is passive.
 
 ### nginx / Traefik (ForwardAuth sidecar)
 
-If you already run **nginx** or **Traefik**, you don't need to replace it. Run Henbane as an **auth sidecar**: your front proxy asks Henbane about each request, Henbane runs the full decision pipeline, and answers `204` to let the request through or a non-`2xx` deny carrying the challenge page / maze / `403`.
+If you already run **nginx** or **Traefik**, you don't need to replace it. Run Henbane as an **auth sidecar**: your front proxy asks Henbane about each request, Henbane runs the full decision pipeline, and it answers `204` to let the request through or a non-`2xx` deny carrying the challenge page, maze, or `403`.
 
 ```bash
 henbane --sidecar --config /etc/henbane.yaml   # same YAML; no upstream
 ```
 
-Henbane reconstructs the original request from the forwarded headers (`X-Forwarded-Uri`/`X-Original-URI`, `X-Forwarded-Method`, `X-Forwarded-Host`, `X-Forwarded-For`), so the classifier sees the real path, method, host, and client IP. **Bind the sidecar to your internal network** — only the front proxy should reach it, since those headers are trusted. Set `trusted_proxies` to your front proxy so the client IP is taken from `X-Forwarded-For`.
+Henbane reconstructs the original request from the forwarded headers (`X-Forwarded-Uri`/`X-Original-URI`, `X-Forwarded-Method`, `X-Forwarded-Host`, `X-Forwarded-For`), so the classifier sees the real path, method, host, and client IP.
 
-**Traefik** forwards a non-`2xx` auth response straight to the client, so the challenge and maze render directly:
+- **Bind the sidecar to your internal network.** Only the front proxy should reach it, since those headers are trusted.
+- Set `trusted_proxies` to your front proxy so the client IP is taken from `X-Forwarded-For`.
+- **Traefik** forwards a non-`2xx` auth response straight to the client, so the challenge and maze render directly.
+- **nginx** `auth_request` reads only the status, so the deny body is surfaced with an `error_page` recipe.
 
 ```yaml
 http:
@@ -135,11 +149,11 @@ http:
         authResponseHeaders: ["X-Henbane-Action"]
 ```
 
-**nginx** `auth_request` reads only the status, so the deny *body* is surfaced with an `error_page` recipe. Full, copy-pasteable configs for both — including routing the proof-of-work verify path so the challenge can be solved — are in [`docs/deploy/sidecar.md`](docs/deploy/sidecar.md).
+Full copy-pasteable configs for both, including routing the proof-of-work verify path so the challenge can be solved, are in [`docs/deploy/sidecar.md`](docs/deploy/sidecar.md).
 
 ## Configuration
 
-Zero-config works: a single `--upstream` passes all traffic through. For anything more, point `--config` at a YAML file. Every key below is one henbane reads today.
+Zero-config works: a single `--upstream` passes all traffic through. For anything more, point `--config` at a YAML file. Every key below is one Henbane reads today.
 
 ```yaml
 # henbane.yaml
@@ -205,7 +219,7 @@ velocity:
 
 metrics:
   listen: ""                     # e.g. "127.0.0.1:9090"; empty = disabled.
-                                 # Served on a SEPARATE, private listener — never
+                                 # Served on a SEPARATE, private listener, never
                                  # the same address as `listen`.
 
 federation:
@@ -218,13 +232,13 @@ federation:
 
 webbotauth:
   enabled: false                 # verify cryptographically-signed AI agents
-  tier: "block"                  # suspect | confirmed | block — action for a verified agent
+  tier: "block"                  # suspect | confirmed | block; action for a verified agent
   directories:                   # agent key directories (https) to trust
     - "https://chatgpt.com"
 
 verified_bots:
   enabled: false                 # allow reverse-DNS-verified search crawlers (Googlebot, Bingbot)
-  spoof_tier: "off"              # off | suspect | confirmed | block — action for a UA-spoofer
+  spoof_tier: "off"              # off | suspect | confirmed | block; action for a UA-spoofer
 
 sinks:
   fail2ban:
@@ -236,26 +250,23 @@ sinks:
 
 The maze's pages are filled by a pluggable `Poisoner`, selected by config:
 
-- **`babble`** (default): an order-2 Markov chain over a small embedded public-domain corpus. Cheap to generate and maximizes crawler cost. A resource-draining tarpit.
-- **`splice`**: recombines whole sentences drawn verbatim from the corpus. Because each sentence is real text, the output reads with near-real perplexity — the filter that catches `babble` and `article` keys on exactly that — while the scrambled sentence order destroys topical coherence. It trades local-only fluency for a shot at surviving the perplexity gauntlet (see the research study).
-- **`article`**: a context-free grammar producing fluent, Wikipedia-register prose about fictional entities with plausible-but-false facts, coherent and lexically distinct per page.
-- **`canary`**: `article` plus unique, trackable fabricated phrases coined from your `salt` with HMAC-SHA256 — stable for your deployment yet unguessable without the salt, so a third party cannot predict, forge, or pre-filter them. Each phrase embeds a reference number that exists only on your pages, giving you an attribution marker you can later search for and verify with the [`henbane canary`](#provable-poison-canaries) tooling.
+- **`babble`** (default): an order-2 Markov chain over a small embedded public-domain corpus. Cheap to generate, maximizes crawler cost. A resource-draining tarpit.
+- **`splice`**: recombines whole sentences drawn verbatim from the corpus. Each sentence is real text, so the output reads with near-real perplexity (the filter that catches `babble` and `article` keys on exactly that), while the scrambled sentence order destroys topical coherence. It trades local fluency for a shot at surviving the perplexity gauntlet (see the [research study](research/STUDY.md)).
+- **`article`**: a context-free grammar producing fluent, Wikipedia-register prose about fictional entities with plausible-but-false facts. Coherent and lexically distinct per page.
+- **`canary`**: `article` plus unique, trackable fabricated phrases coined from your `salt` with HMAC-SHA256. Stable for your deployment, unguessable without the salt, so a third party cannot predict, forge, or pre-filter them. Each phrase embeds a reference number that exists only on your pages, giving you an attribution marker you can later search for and verify with the [`henbane canary`](#provable-poison-canaries) tooling.
 - **`none`**: links-only maze, no body text.
 
 ### Decompression bomb (optional, aggressive)
 
-With `bomb.trigger: confirmed` (or `blocked`), a confirmed-hostile client that advertises `Accept-Encoding: gzip` is served a **gzip decompression bomb** instead of the maze: a tiny response that inflates — up to `decompressed_cap_mb` — into megabytes of compressible filler studded with poison. Cheap for you to send, expensive for a naive scraper to decompress and parse.
+With `bomb.trigger: confirmed` (or `blocked`), a confirmed-hostile client that advertises `Accept-Encoding: gzip` is served a **gzip decompression bomb** instead of the maze: a tiny response that inflates (up to `decompressed_cap_mb`) into megabytes of compressible filler studded with poison. Cheap for you to send, expensive for a naive scraper to decompress and parse.
 
-**It is off by default and deliberately narrow.** It fires only on a confirmed-hostile tier, only for a client that advertised gzip, and is size-capped and streamed. The collateral risk is real: a CDN, a cache, an accessibility tool, or a **misidentified real browser** that sent `Accept-Encoding: gzip` would also receive it. Enable it only when you accept that trade-off.
+**It is off by default and deliberately narrow.** It fires only on a confirmed-hostile tier, only for a client that advertised gzip, and is size-capped and streamed. The collateral risk is real: a CDN, a cache, an accessibility tool, or a misidentified real browser that sent `Accept-Encoding: gzip` would also receive it. Enable it only when you accept that trade-off.
 
 ## Provable poison (canaries)
 
-The `canary` strategy turns poison into evidence. Every phrase it plants — e.g.
-`Velthu Casmarvel 9017 standard` — is coined deterministically from your `salt`
-with HMAC-SHA256: stable for your deployment, identical across restarts, yet
-**cryptographically unguessable** without the salt. A third party cannot predict a
-canary to pre-filter it out, nor forge one to pollute your attribution. The `henbane
-canary` subcommand is operator tooling (it never runs on the request path):
+The `canary` strategy turns poison into evidence. Every phrase it plants (for example `Velthu Casmarvel 9017 standard`) is coined deterministically from your `salt` with HMAC-SHA256: stable for your deployment, identical across restarts, yet **cryptographically unguessable** without the salt. A third party cannot predict a canary to pre-filter it out, nor forge one to pollute your attribution.
+
+The `henbane canary` subcommand is operator tooling. It never runs on the request path:
 
 ```console
 # List your deployment's canary phrases (reads poison.salt, or pass -salt).
@@ -269,20 +280,11 @@ $ pbpaste | henbane canary check -config henbane.yaml
 ATTRIBUTED: found this deployment's canary "Velthu Casmarvel 9017 standard"
 ```
 
-`check` exits 0 on a match and 1 otherwise, so it scripts cleanly. The match is
-cryptographic-strength attribution: because the phrases derive from your secret
-salt, a hit is strong evidence the text reached and reproduced *your* planted
-content — not another site's, and not a guess.
+`check` exits 0 on a match and 1 otherwise, so it scripts cleanly. The match is cryptographic-strength attribution: because the phrases derive from your secret salt, a hit is strong evidence the text reached and reproduced *your* planted content, not another site's and not a guess.
 
 ### The opt-in probe
 
-`henbane canary probe` automates the search against an AI endpoint you configure.
-For each canary it asks the endpoint about the coined *name only* — never the full
-phrase — and reports a **HIT** only if the response reproduces the full phrase,
-**including the reference number that appears nowhere but on your pages.** Asking
-about the name alone is deliberate: if the probe sent the whole phrase, a model
-could echo it straight back from the prompt (a false positive), whereas returning
-the specific planted number is only possible if the endpoint retrieved your content.
+`henbane canary probe` automates the search against an AI endpoint you configure. For each canary it asks the endpoint about the coined *name only*, never the full phrase, and reports a **HIT** only if the response reproduces the full phrase **including the reference number that appears nowhere but on your pages.** Asking about the name alone is deliberate. If the probe sent the whole phrase, a model could echo it straight back from the prompt (a false positive); returning the specific planted number is only possible if the endpoint retrieved your content.
 
 ```yaml
 canary:
@@ -301,19 +303,17 @@ $ CANARY_PROBE_TOKEN=… henbane canary probe -config henbane.yaml
   1/16 canaries surfaced
 ```
 
-**What a hit means — and does not.** A HIT proves the endpoint retrieved and
-reproduced your planted content: live **retrieval and repetition reach**. It does
-**not** prove your content entered any model's training set — that is unobservable
-from outside (see [Does this actually work?](#does-this-actually-work)). Honest
-caveats: the probe POSTs a single-field JSON body, which fits answer/search APIs but
-not chat-completion APIs with a nested `messages` array (use `list` + manual search
-there); probing *reveals* a canary to the endpoint, so a hit on a first, cold run is
-cleaner evidence than repeated runs; and models hallucinate plausible numbers, so
-treat a lone `weak` line as a lead to corroborate, not a result.
+**What a hit means, and what it does not.** A HIT proves the endpoint retrieved and reproduced your planted content: live **retrieval and repetition reach**. It does **not** prove your content entered any model's training set. That is unobservable from outside (see [Does this actually work?](#does-this-actually-work)). Honest caveats:
+
+- The probe POSTs a single-field JSON body. That fits answer/search APIs but not chat-completion APIs with a nested `messages` array (use `list` plus a manual search there).
+- Probing reveals a canary to the endpoint, so a hit on a first, cold run is cleaner evidence than repeated runs.
+- Models hallucinate plausible numbers, so treat a lone `weak` line as a lead to corroborate, not a result.
 
 ## Observe mode
 
-Aggressive bot detection has a false-positive cost — see [Effectiveness](#effectiveness) below (browsers older than ~2021–2023 can be flagged) — so **start in observe mode**. Set `observe: true` and Henbane runs the full decision pipeline and records the verdict it *would* take (logged with `observe=true`, and counted in `/metrics` by action and tier) while **serving every request normally**: nothing is challenged, tarpitted, or blocked. Watch your own traffic for a few days, confirm the would-be actions land on bots and not your users, tune `scoring` thresholds and denylists, then remove `observe` to enforce. It applies across every form factor (reverse proxy, middleware, Caddy, sidecar).
+Aggressive bot detection has a false-positive cost (see [Effectiveness](#effectiveness); browsers older than roughly 2021 to 2023 can be flagged), so **start in observe mode**. Set `observe: true` and Henbane runs the full decision pipeline and records the verdict it *would* take (logged with `observe=true`, counted in `/metrics` by action and tier) while **serving every request normally**. Nothing is challenged, tarpitted, or blocked.
+
+Watch your own traffic for a few days, confirm the would-be actions land on bots and not your users, tune `scoring` thresholds and denylists, then remove `observe` to enforce. It applies across every form factor (reverse proxy, middleware, Caddy, sidecar).
 
 ```yaml
 observe: true
@@ -321,31 +321,42 @@ observe: true
 
 ## Effectiveness
 
-Henbane is benchmarked, and the numbers are honest — including where it falls short. Two reproducible studies back the claims (`go test ./research/...`).
+Henbane is benchmarked, and the numbers are honest, including where it falls short. Two reproducible studies back the claims (`go test ./research/...`).
 
-**Detection** — [`research/classifier-benchmark.md`](research/classifier-benchmark.md) (a deliberately *critical* study, grounded in each client's verified default headers). On a labelled corpus the scoring classifier catches **8/8 representative HTTP-library scrapers** wearing a spoofed browser User-Agent (Go, Python requests/httpx, curl, wget, axios, Java HttpClient, Scrapy) — a population a User-Agent blocklist catches **0/8** of. But the honest findings matter more than the catch rate: the `Sec-Fetch-Site` signal that does the work **also flags legitimate browsers released before Fetch Metadata shipped** (Chrome <76, Firefox <90, Safari <16.4), so at a 1% bot base rate its raw precision collapses toward **0.03** (the base-rate fallacy). A careful scraper that omits only `Sec-Fetch` is **header-identical to an old Safari** at the header layer — which is why the score drives a **challenge, never a block**, why the good-bot verifier rescues real crawlers, and why it's one soft signal in a fusion engine rather than a wall. The **HTTP/2 fingerprint** (shipped as the optional `h2capture` module) is the non-header signal that *does* separate that careful scraper from the old browser — its Go/httpx h2 shape is not a real browser's. Real **headless** browsers remain the gap (recall 0.82 once they count as positives): they carry a genuine browser's TLS *and* HTTP/2 fingerprint, so neither layer catches them — only behavioural/device fingerprinting would, which is tracked as future work.
+**Detection** ([`research/classifier-benchmark.md`](research/classifier-benchmark.md), a deliberately critical study grounded in each client's verified default headers):
 
-**Cost** — [`research/benchmarks.md`](research/benchmarks.md). The full classifier (denylists + honeypot + velocity + both good-bot verifiers + scoring) decides a request in **microsecond-scale time** — measured ~3 µs on one commodity amd64 laptop, ~5–9 µs single-core — with **5 allocations**, so it's negligible in any latency budget. Poison generates far faster than a crawler can fetch and parse it (splice ~200 MB/s, the other strategies ~15–25 MB/s on that host), and the optional gzip bomb imposes a **~141× download-and-decompress amplification** (74 KB → 10 MB; 7.6 MB → 1 GB). Absolute times vary ~2–3× by hardware and load; only the bomb ratio and the allocation counts are hardware-independent (details and caveats in the doc).
+- It catches **8/8** representative HTTP-library scrapers wearing a spoofed browser User-Agent (Go, Python requests/httpx, curl, wget, axios, Java HttpClient, Scrapy). A User-Agent blocklist catches **0/8** of them.
+- The signal doing most of that work, a missing `Sec-Fetch-Site` header, also flags legitimate browsers released before Fetch Metadata shipped (Chrome <76, Firefox <90, Safari <16.4). At a 1% bot base rate, raw precision collapses toward **0.03** (the base-rate fallacy). The balanced-corpus F1 of 1.00 hides this.
+- That is why the score drives a **challenge, not a block**. The good-bot verifier rescues real crawlers, and it is one soft signal in a fusion engine.
+- At the header layer, a careful scraper that omits only `Sec-Fetch` is identical to an old Safari. The **HTTP/2 fingerprint** (optional `h2capture` module) is the non-header signal that separates them: a Go or httpx h2 shape is not a real browser's.
+- Real **headless** browsers are the remaining gap (recall 0.82 once they count as positives). They carry a genuine browser's TLS *and* HTTP/2 fingerprint, so neither layer catches them. Only behavioural/device fingerprinting would, which is future work.
 
-The shape of it: a negligible operator cost, an asymmetric crawler cost, and a classifier that is honestly strong against the cheap-scraper majority and honestly blind to evasive headless traffic — which is exactly why the labyrinth and poison, not the classifier, are the real deterrent. For where this sits against Anubis, go-away, Cloudflare, DataDome and the rest, see the [competitive comparison](research/classifier-benchmark.md#3-signal-coverage-matrix).
+**Cost** ([`research/benchmarks.md`](research/benchmarks.md)):
+
+- The full classifier (denylists, honeypot, velocity, both good-bot verifiers, scoring) decides a request in microsecond-scale time (~3 µs on one commodity amd64 laptop, ~5 to 9 µs single-core) with 5 allocations. Negligible in any latency budget.
+- Poison generates far faster than a crawler can fetch and parse it: splice ~200 MB/s, the other strategies ~15 to 25 MB/s on that host.
+- The optional gzip bomb imposes a ~141x download-and-decompress amplification (74 KB to 10 MB; 7.6 MB to 1 GB).
+- Absolute times vary 2 to 3x by hardware and load. Only the bomb ratio and the allocation counts are hardware-independent.
+
+The shape of it: a negligible operator cost, an asymmetric crawler cost, and a classifier that is honestly strong against the cheap-scraper majority and honestly blind to evasive headless traffic. The labyrinth and poison are the real deterrent, not the classifier. For how this sits against Anubis, go-away, Cloudflare, and DataDome, see the [competitive comparison](research/classifier-benchmark.md#3-signal-coverage-matrix).
 
 ## Does this actually work?
 
 Short version: it reliably wastes crawler resources. It does **not**, and cannot be shown to, "poison an AI model." The honest framing matters, so here it is in full.
 
 - **Reaching the crawlers is easy.** The major training crawlers (GPTBot, ClaudeBot, CCBot, Bytespider, Amazonbot, PerplexityBot, Meta-ExternalAgent) fetch raw HTML and do not execute JavaScript, so a static maze catches them without any client-side tricks.
-- **Reaching a _training set_ is hard.** Real dataset pipelines (C4, Gopher, CCNet, RefinedWeb, Dolma, FineWeb, Nemotron-CC) stack aggressive filters: boilerplate removal, quality heuristics, badword and blocklists, perplexity filtering (which discards the large majority of Common Crawl as statistically "weird"), and near-duplicate deduplication. Low-fluency Markov babble is close to a worst case for these filters. The `article` and `canary` strategies are designed to look more like ordinary prose, but we make **no claim** that any of it survives into a model.
+- **Reaching a _training set_ is hard.** Real dataset pipelines (C4, Gopher, CCNet, RefinedWeb, Dolma, FineWeb, Nemotron-CC) stack aggressive filters: boilerplate removal, quality heuristics, badword and blocklists, perplexity filtering (which discards the large majority of Common Crawl as statistically "weird"), and near-duplicate deduplication. Low-fluency Markov babble is close to a worst case for these filters. The `article` and `canary` strategies look more like ordinary prose, but we make **no claim** that any of it survives into a model.
 - **One site is a drop in the ocean.** A site of a few thousand pages is on the order of one part in ten million of a frontier training corpus before filtering. For a single operator this is a symbolic, deterrent measure. Where it could plausibly matter is niche topics a site dominates, and many sites acting together.
-- **Model impact is unobservable from outside.** No operator can see another party's training set or weights. Every rigorous data-poisoning result in the literature relied on privileged, white-box, or guaranteed-insertion access, a research setup, not "I served some pages and a crawler may have fetched them."
-- **What we will _not_ do:** cite the "250 documents can backdoor an LLM" result or the "model collapse" work as evidence that this degrades frontier models. Neither supports that claim: the first needs a guaranteed-insertion shared trigger, and the second describes recursive multi-generation training.
+- **Model impact is unobservable from outside.** No operator can see another party's training set or weights. Every rigorous data-poisoning result in the literature relied on privileged, white-box, or guaranteed-insertion access. That is a research setup, not "I served some pages and a crawler may have fetched them."
+- **What we will _not_ do:** cite the "250 documents can backdoor an LLM" result or the "model collapse" work as evidence that this degrades frontier models. Neither supports that claim. The first needs a guaranteed-insertion shared trigger; the second describes recursive multi-generation training.
 
-What is honestly measurable is the resource cost you impose (bytes served, crawl depth, dwell time, bot-versus-real ratio) — see [Effectiveness](#effectiveness) above for the measured figures — and, via the opt-in [`henbane canary probe`](#provable-poison-canaries), whether planted `canary` phrases surface in a live AI-search endpoint you point it at (which measures live retrieval reach, not poisoned training). Henbane is worth running for the resource-cost story alone.
+What is honestly measurable is the resource cost you impose: bytes served, crawl depth, dwell time, bot-versus-real ratio (see [Effectiveness](#effectiveness) for the measured figures). The opt-in [`henbane canary probe`](#provable-poison-canaries) also measures whether planted `canary` phrases surface in a live AI-search endpoint you point it at, which is live retrieval reach, not poisoned training. Henbane is worth running for the resource-cost story alone.
 
 ## Acceptable use and content liability
 
-Everything henbane **ships** is fully fictional: the embedded corpus and the `article` and `canary` grammars invent entities, places, and facts, and contain no real people or organizations. That is a deliberate policy.
+Everything Henbane **ships** is fully fictional: the embedded corpus and the `article` and `canary` grammars invent entities, places, and facts, and contain no real people or organizations. That is a deliberate policy.
 
-If you point `corpus_path` at your own text, **you** choose and own that content. Supplying material that makes false statements about real, identifiable people or organizations is your legal responsibility, not the project's. Serving fabricated content to a misidentified legitimate crawler can also constitute cloaking; henbane only poisons honeypot-confirmed clients to avoid that, but a misconfigured honeypot path is on the operator.
+If you point `corpus_path` at your own text, **you** choose and own that content. Supplying material that makes false statements about real, identifiable people or organizations is your legal responsibility, not the project's. Serving fabricated content to a misidentified legitimate crawler can also constitute cloaking. Henbane only poisons honeypot-confirmed clients to avoid that, but a misconfigured honeypot path is on the operator.
 
 ## fail2ban
 
@@ -359,7 +370,7 @@ The shipped filter (`deploy/fail2ban/henbane.conf`) and jail snippet (`deploy/fa
 
 ## Metrics
 
-Set `metrics.listen` and Henbane exposes Prometheus-format counters — hand-formatted, no client library:
+Set `metrics.listen` and Henbane exposes Prometheus-format counters, hand-formatted with no client library:
 
 ```
 # TYPE henbane_requests_total counter
@@ -369,47 +380,73 @@ henbane_requests_total{action="allow",tier="pass"} 37190
 henbane_signals_total{signal="honeypot"} 61
 ```
 
-This is where the tarpit's value becomes visible: the `allow` count versus the `challenge`/`tarpit`/`block` counts is your human-to-bot ratio, and every `tarpit` is a maze page you made a crawler fetch instead of real content. The counters are aggregate — **no per-IP or per-path labels**, so they carry operational data, not user data. It is served on a **separate listener** (`metrics.listen` must differ from `listen`); bind it to a private interface so the numbers never ride the public proxy path. Off by default.
+This is where the tarpit's value becomes visible. The `allow` count versus the `challenge`/`tarpit`/`block` counts is your human-to-bot ratio, and every `tarpit` is a maze page you made a crawler fetch instead of real content.
+
+- The counters are aggregate, with **no per-IP or per-path labels**, so they carry operational data, not user data.
+- They are served on a **separate listener** (`metrics.listen` must differ from `listen`). Bind it to a private interface so the numbers never ride the public proxy path.
+- Off by default.
 
 ## Federation
 
-A bot caught at one site should be known at the next. Two opt-in halves:
+A bot caught at one site should be known at the next. Two opt-in halves, both off by default:
 
-**Consume** — set `federation.feed_url` and Henbane pulls a shared bad-IP blocklist on an interval and blocks listed clients. Point it at any threat feed (a public bad-bot list, your own, or a future Poison Garden). The feed is operator-chosen but treated as untrusted input: entries are parsed strictly and capped, over-broad prefixes are rejected (a compromised feed cannot inject `0.0.0.0/0` to block everyone), the body is bounded, and a failed fetch **keeps the last good list** — never block-all or allow-all.
+**Consume** (`federation.feed_url`): Henbane pulls a shared bad-IP blocklist on an interval and blocks listed clients. Point it at any threat feed (a public bad-bot list, your own, or a future Poison Garden). The feed is operator-chosen but treated as untrusted input:
 
-**Report** — set `federation.report_url` and Henbane contributes *its own* confirmed detections back. It is async and bounded (it never blocks or back-pressures the request path), and privacy-minimised by construction: **only `Confirmed`/`Blocked` tiers** are reported (never a human's `Pass`/`Suspect` IP), and only `{ip, signal, tier, timestamp}` — no logs, User-Agent, path, or payload. The basis is GDPR **legitimate interest** (Recital 49, network & information security); see the [Legitimate Interests Assessment](docs/legitimate-interest-assessment.md). IPs are sent raw rather than hashed, because a hashed IP is still personal data and can't be matched across reporters for the consensus that curates the feed.
+- Entries are parsed strictly and capped.
+- Over-broad prefixes are rejected, so a compromised feed cannot inject `0.0.0.0/0` to block everyone.
+- The body is bounded, and a failed fetch **keeps the last good list**. It never fails to block-all or allow-all.
 
-Both halves are off by default.
+**Report** (`federation.report_url`): Henbane contributes its own confirmed detections back. It is async and bounded (it never blocks or back-pressures the request path), and privacy-minimised by construction:
+
+- **Only `Confirmed`/`Blocked` tiers** are reported, never a human's `Pass`/`Suspect` IP.
+- Only `{ip, signal, tier, timestamp}` is sent: no logs, User-Agent, path, or payload.
+- The legal basis is GDPR **legitimate interest** (Recital 49, network and information security); see the [Legitimate Interests Assessment](docs/legitimate-interest-assessment.md).
+- IPs are sent raw rather than hashed, because a hashed IP is still personal data and cannot be matched across reporters for the consensus that curates the feed.
 
 ## Verified search crawlers (reverse DNS)
 
-Set `verified_bots.enabled` and Henbane verifies Googlebot, Bingbot, and Applebot by **forward-confirmed reverse DNS** — a genuine Googlebot IP reverse-resolves to `*.googlebot.com` and that hostname forward-resolves back to the same IP. A **verified** crawler is *allowed* — it bypasses the suspicion pipeline, so you don't tarpit or poison the search crawlers you actually want (and it isn't caught by `pow.mode: all`). Anything a spoofer sets in its User-Agent is irrelevant; only DNS decides.
+Set `verified_bots.enabled` and Henbane verifies Googlebot, Bingbot, and Applebot by **forward-confirmed reverse DNS**: a genuine Googlebot IP reverse-resolves to `*.googlebot.com`, and that hostname forward-resolves back to the same IP.
 
-A client whose User-Agent *claims* to be a crawler but can't be verified is a **spoofer** (a common evasion) — handled at `verified_bots.spoof_tier` (`off` by default; set `block`/`confirmed`/`suspect` to act on it). DNS lookups run in the **background**, never on the request path — an IP gets "no opinion" until it resolves, so a flood of crawler-UA requests can't stall the server. The built-in crawler list (and their domains) is overridable via `verified_bots.crawlers`.
+- A **verified** crawler is *allowed*. It bypasses the suspicion pipeline, so you don't tarpit or poison the search crawlers you want, and it isn't caught by `pow.mode: all`. Anything a spoofer sets in its User-Agent is irrelevant; only DNS decides.
+- A client whose User-Agent *claims* to be a crawler but can't be verified is a **spoofer** (a common evasion), handled at `verified_bots.spoof_tier` (`off` by default; set `block`/`confirmed`/`suspect` to act on it).
+- DNS lookups run in the **background**, never on the request path. An IP gets "no opinion" until it resolves, so a flood of crawler-UA requests can't stall the server.
+- The built-in crawler list (and their domains) is overridable via `verified_bots.crawlers`.
 
 ## Verified AI crawlers (published IP ranges)
 
-The major AI crawlers — OpenAI's **GPTBot**, **ChatGPT-User**, and **OAI-SearchBot**; Anthropic's **ClaudeBot** family; **PerplexityBot** — expose no reverse DNS, so FCrDNS can't confirm them. Instead they *publish the IP ranges* their requests come from. Set `verified_ai_crawlers.enabled` and Henbane confirms each by checking the client IP against that crawler's published CIDRs: a **verified** AI crawler is *allowed* (so you don't poison the AI crawlers you want indexing you), and a client that claims one from an IP **outside** its ranges is a **spoofer**, acted on at `verified_ai_crawlers.spoof_tier` (`off` by default). The check is a pure in-memory lookup — no request-path I/O.
+The major AI crawlers (OpenAI's **GPTBot**, **ChatGPT-User**, and **OAI-SearchBot**; Anthropic's **ClaudeBot** family; **PerplexityBot**) expose no reverse DNS, so FCrDNS can't confirm them. Instead they *publish the IP ranges* their requests come from. Set `verified_ai_crawlers.enabled` and Henbane confirms each by checking the client IP against that crawler's published CIDRs:
 
-The ranges are **bundled** from each vendor's own first-party feed (never a third-party aggregator) and refreshed with `go generate ./internal/detect/crawlerips/...`. This complements the two identity checks above: reverse DNS for search engines, cryptographic signatures for agents that sign, and published ranges for the AI crawlers that do neither.
+- A **verified** AI crawler is *allowed*, so you don't poison the AI crawlers you want indexing you.
+- A client that claims one from an IP **outside** its ranges is a **spoofer**, acted on at `verified_ai_crawlers.spoof_tier` (`off` by default).
+- The check is a pure in-memory lookup, with no request-path I/O.
+
+The ranges are **bundled** from each vendor's own first-party feed (never a third-party aggregator) and refreshed with `go generate ./internal/detect/crawlerips/...`. This completes three identity checks: reverse DNS for search engines, cryptographic signatures for agents that sign, and published ranges for the AI crawlers that do neither.
 
 ## Verified AI agents (Web Bot Auth)
 
-A User-Agent is a guess; a cryptographic signature is proof. [Web Bot Auth](https://blog.cloudflare.com/signed-agents/) (RFC 9421 HTTP Message Signatures + a published key directory) lets an agent *prove* its identity with an Ed25519 signature — OpenAI's ChatGPT agent, DuckDuckGo, and others already sign their traffic. Set `webbotauth.enabled`, list the agent key `directories` you recognise, and Henbane verifies each signature against those directories' keys and applies `webbotauth.tier` to a **verified** agent — so you act on a proven identity, not a spoofable header.
+A User-Agent is a guess; a cryptographic signature is proof. [Web Bot Auth](https://blog.cloudflare.com/signed-agents/) (RFC 9421 HTTP Message Signatures plus a published key directory) lets an agent *prove* its identity with an Ed25519 signature. OpenAI's ChatGPT agent, DuckDuckGo, and others already sign their traffic.
 
-The action is yours: `block` a verified AI crawler (now that it can't hide behind a fake UA), `confirmed` to feed it the tarpit/poison, or `suspect` to challenge it. Keys are fetched from the configured directories at startup (restart to refresh). Ed25519 only, matching the live ecosystem. The verifier is **interoperability-tested against Cloudflare's reference signer** — it accepts a real reference-signed request and rejects tampered or expired ones. A verification failure is always treated as "not a verified agent", never as a trusted one.
+Set `webbotauth.enabled`, list the agent key `directories` you recognise, and Henbane verifies each signature against those directories' keys and applies `webbotauth.tier` to a **verified** agent. You act on a proven identity, not a spoofable header.
+
+- The action is yours: `block` a verified AI crawler (now that it can't hide behind a fake UA), `confirmed` to feed it the tarpit and poison, or `suspect` to challenge it.
+- Keys are fetched from the configured directories at startup (restart to refresh). Ed25519 only, matching the live ecosystem.
+- The verifier is **interoperability-tested against Cloudflare's reference signer**: it accepts a real reference-signed request and rejects tampered or expired ones.
+- A verification failure is always treated as "not a verified agent", never as a trusted one.
 
 ## TLS fingerprinting
 
-When Henbane terminates TLS itself (set `tls.cert`/`tls.key`), it fingerprints each client's TLS handshake — a coarse, stable hash of the cipher suites, groups, point formats, ALPN, signature schemes, and versions the client offers, with GREASE filtered out. Automated stacks (Go's `net/http`, Python, curl, …) present different TLS characteristics than real browsers, so the fingerprint is a signal that survives a client lying in its User-Agent.
+When Henbane terminates TLS itself (set `tls.cert`/`tls.key`), it fingerprints each client's TLS handshake: a coarse, stable hash of the cipher suites, groups, point formats, ALPN, signature schemes, and versions the client offers, with GREASE filtered out. Automated stacks (Go's `net/http`, Python, curl) present different TLS characteristics than real browsers, so the fingerprint is a signal that survives a client lying in its User-Agent.
 
-The fingerprint appears in the decision log as `tls_fp`, so you can watch your traffic and then block the stacks you've confirmed are bots via `deny.tls_fingerprints` (a `403`, like the IP and UA denylists). Because the fingerprint is *coarse*, it is shared by every client using the same TLS library — list only fingerprints you've confirmed, exactly as with CIDR and UA denylists. It is unavailable (empty) when a proxy or CDN terminates TLS in front of Henbane; this is a direct-exposure feature. A full JA3 is not possible from Go's standard library, which hides the raw ClientHello.
+- The fingerprint appears in the decision log as `tls_fp`. Watch your traffic, then block the stacks you've confirmed are bots via `deny.tls_fingerprints` (a `403`, like the IP and UA denylists).
+- The fingerprint is *coarse*, shared by every client using the same TLS library, so list only fingerprints you've confirmed, exactly as with CIDR and UA denylists.
+- It is empty when a proxy or CDN terminates TLS in front of Henbane. This is a direct-exposure feature.
+- A full JA3 is not possible from Go's standard library, which hides the raw ClientHello.
 
 ## HTTP/2 fingerprinting (optional module)
 
-The strongest anti-spoofing signal is the **HTTP/2 fingerprint** — the Akamai-style summary of the `SETTINGS`, connection `WINDOW_UPDATE`, `PRIORITY` frames, and pseudo-header order a client emits when it opens an h2 connection. These come from deep in a client's HTTP/2 engine, not from request-level options, so a scraper cannot match a browser's h2 fingerprint without replacing its whole transport. It is exactly the layer modern anti-bot stacks check below JA4.
+The strongest anti-spoofing signal is the **HTTP/2 fingerprint**: the Akamai-style summary of the `SETTINGS`, connection `WINDOW_UPDATE`, `PRIORITY` frames, and pseudo-header order a client emits when it opens an h2 connection. These come from deep in a client's HTTP/2 engine, not from request-level options, so a scraper cannot match a browser's h2 fingerprint without replacing its whole transport. It is the layer modern anti-bot stacks check below JA4.
 
-Reading the raw h2 frames needs a real HTTP/2 framer (`golang.org/x/net/http2`), which the zero-dependency core must not import — so capture lives in a **separate optional module**, `h2capture/` (the same pattern as the Caddy plugin, so its dependency never touches the core). Enable it on your server in one line when you embed Henbane:
+Reading the raw h2 frames needs a real HTTP/2 framer (`golang.org/x/net/http2`), which the zero-dependency core must not import. So capture lives in a **separate optional module**, `h2capture/` (the same pattern as the Caddy plugin, so its dependency never touches the core). Enable it on your server in one line when you embed Henbane:
 
 ```go
 srv := &http.Server{Handler: hb.Handler(mux), TLSConfig: tlsCfg}
@@ -417,7 +454,13 @@ h2capture.Enable(srv)   // adds h2 fingerprint capture; HTTP/1.1 is served untou
 srv.ListenAndServeTLS(cert, key)
 ```
 
-With it wired, a request wearing a browser `User-Agent` whose h2 fingerprint no browser would produce adds to its score: Go's `a,m,p,s` pseudo-header order (no browser leads with `:authority`), curl's and Java's `m,s,a,p`, or the Python-`h2` library's tell-tale `HEADER_TABLE_SIZE 4096` that httpx and Scrapy send *even while copying Chrome's pseudo-header order*. This is the signal that cracks the one case headers cannot — a careful scraper that omits only `Sec-Fetch` is otherwise header-identical to an old browser. Like every scorer signal it only raises suspicion (a challenge, not a block), and it is inert unless capture is wired and Henbane terminates the client's h2 connection directly (absent behind a CDN). Details and the measured fingerprint dataset: [`docs/design/2026-11-16-h2-fingerprint.md`](docs/design/2026-11-16-h2-fingerprint.md).
+With it wired, a request wearing a browser `User-Agent` whose h2 fingerprint no browser would produce adds to its score:
+
+- Go's `a,m,p,s` pseudo-header order (no browser leads with `:authority`).
+- curl's and Java's `m,s,a,p`.
+- The Python-`h2` library's tell-tale `HEADER_TABLE_SIZE 4096`, which httpx and Scrapy send even while copying Chrome's pseudo-header order.
+
+This cracks the one case headers cannot: a careful scraper that omits only `Sec-Fetch` is otherwise header-identical to an old browser. Like every scorer signal it only raises suspicion (a challenge, not a block), and it is inert unless capture is wired and Henbane terminates the client's h2 connection directly (empty behind a CDN). Details and the measured fingerprint dataset are in [`docs/design/2026-11-16-h2-fingerprint.md`](docs/design/2026-11-16-h2-fingerprint.md).
 
 ## Scoring (signal fusion)
 
@@ -431,9 +474,9 @@ scoring:
   confirm_threshold: 4   # score ≥ this → tarpit + poison
 ```
 
-Each thing a browser-claiming client *omits* — `Sec-Fetch-Site` metadata, an `Accept` header, a language, a modern `Accept-Encoding`, HTTP/2 — adds weighted points. One miss is only worth a brief challenge; several **compound** into a confident *Confirmed*, so a stock HTTP client wearing a Chrome `User-Agent` lands in the labyrinth while a real browser sails through. Every piece of evidence is recorded in the decision log even when it doesn't escalate, so you can see *why* a client was judged. Definitive signals (denylists, honeypot) and verified good bots still win outright — scoring only ever *raises* suspicion, never lowers it.
+Each thing a browser-claiming client omits (`Sec-Fetch-Site` metadata, an `Accept` header, a language, a modern `Accept-Encoding`, HTTP/2) adds weighted points. One miss is only worth a brief challenge; several **compound** into a confident `Confirmed`, so a stock HTTP client wearing a Chrome `User-Agent` lands in the labyrinth while a real browser sails through. Every piece of evidence is recorded in the decision log even when it doesn't escalate, so you can see *why* a client was judged. Definitive signals (denylists, honeypot) and verified good bots still win outright; scoring only ever *raises* suspicion, never lowers it.
 
-> **HTTP/2 note.** The "HTTP/2" row above is the zero-dep protocol signal (did the client negotiate HTTP/2 at all?). The far stronger **Akamai h2 frame fingerprint** ships in the optional `h2capture/` module — see [HTTP/2 fingerprinting](#http2-fingerprinting-optional-module) above.
+> **HTTP/2 note.** The "HTTP/2" row above is the zero-dep protocol signal (did the client negotiate HTTP/2 at all?). The far stronger **Akamai h2 frame fingerprint** ships in the optional `h2capture/` module; see [HTTP/2 fingerprinting](#http2-fingerprinting-optional-module).
 
 ## Dependencies
 
@@ -451,11 +494,11 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Proof-of-work challenge gate: SHA-256 solver in a Web Worker (off-thread, flat-out), HMAC session token, themeable page, no-JS fallback
 - [x] Browser-hint and request-rate (velocity) suspicion signals
 - [x] TLS client fingerprinting (coarse, logged as `tls_fp`; `deny.tls_fingerprints`)
-- [x] Scoring / signal fusion — weak signals accumulate into a confident verdict (`scoring`), with browser-consistency (header + HTTP-version) checks
-- [x] HTTP/2 Akamai frame fingerprint — optional `h2capture/` module (keeps the zero-dep core clean), feeds browser-consistency scoring
-- [x] Verified good bots: Web Bot Auth (RFC 9421 signed agents) + reverse-DNS search crawlers (Googlebot/Bingbot), with spoofer detection
+- [x] Scoring / signal fusion: weak signals accumulate into a confident verdict (`scoring`), with browser-consistency (header and HTTP-version) checks
+- [x] HTTP/2 Akamai frame fingerprint: optional `h2capture/` module (keeps the zero-dep core clean), feeds browser-consistency scoring
+- [x] Verified good bots: Web Bot Auth (RFC 9421 signed agents) plus reverse-DNS search crawlers (Googlebot/Bingbot), with spoofer detection
 - [x] Verified AI crawlers by published IP range (GPTBot/ChatGPT-User/OAI-SearchBot, ClaudeBot family, PerplexityBot), with spoofer detection
-- [x] Observe (dry-run) mode — record would-be verdicts without acting, for safe rollout and tuning (`observe: true`)
+- [x] Observe (dry-run) mode: record would-be verdicts without acting, for safe rollout and tuning (`observe: true`)
 - [x] Prometheus `/metrics` endpoint on a separate private listener
 - [x] `net/http` middleware form factor (`henbane.New` / `hb.Handler`, v0)
 - [x] Caddy module (`caddy/`, build with xcaddy)
@@ -516,7 +559,4 @@ The full design, including the ports-and-adapters layout, the decision contract,
 Henbane is free software under the **GNU AGPL-3.0**. See [LICENSE](LICENSE).
 Copyright © 2026 datadir s. r. o.
 
-The AGPL is deliberate: run a modified Henbane as a network service and you must
-share your changes. The open gateway stays a commons; a commercial control plane
-(dashboard, analytics, federation) is offered separately. See
-[`docs/STRATEGY.md`](docs/STRATEGY.md).
+The AGPL is deliberate: run a modified Henbane as a network service and you must share your changes. The open gateway stays a commons. A commercial control plane (dashboard, analytics, federation) is offered separately.
