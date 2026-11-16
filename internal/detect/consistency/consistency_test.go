@@ -43,6 +43,10 @@ const (
 
 const chromeUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
 
+// headlessChromeUA is headless Chrome's default User-Agent: a full Chrome engine
+// (so it sends every browser header) that still announces "HeadlessChrome".
+const headlessChromeUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/131.0.0.0 Safari/537.36"
+
 // realBrowserHeaders is what an actual Chrome request carries.
 func realBrowserHeaders() map[string]string {
 	return map[string]string{
@@ -184,5 +188,51 @@ func TestNoModernEncoding(t *testing.T) {
 	rs := s.Score(protoView{view{ua: chromeUA, headers: h, proto: 2}})
 	if total(rs) != DefaultWeights().NoModernEncoding {
 		t.Errorf("Accept-Encoding without gzip/br should score the encoding weight, got %d (%v)", total(rs), rs)
+	}
+}
+
+func hasSignal(rs []ports.ScoreResult, sig string) bool {
+	for _, r := range rs {
+		if string(r.Signal) == sig {
+			return true
+		}
+	}
+	return false
+}
+
+func TestHeadlessChromeUAFlagged(t *testing.T) {
+	s := New(DefaultWeights())
+	// Headless Chrome is a real Chrome engine: it sends every browser header and a
+	// genuine browser h2 fingerprint, so NONE of the omission signals fire. The only
+	// thing that betrays it is the self-identifying "HeadlessChrome" UA token.
+	rs := s.Score(protoView{view{ua: headlessChromeUA, headers: realBrowserHeaders(), proto: 2, tlsfp: "x", h2: chromeH2}})
+	if !hasSignal(rs, "browser_mismatch:automation_ua") {
+		t.Errorf("a HeadlessChrome UA must raise the automation signal, got %v", rs)
+	}
+	if total(rs) != DefaultWeights().AutomationUA {
+		t.Errorf("an otherwise-perfect headless Chrome should score exactly the automation-UA weight, got %d (%v)", total(rs), rs)
+	}
+}
+
+func TestAutomationUACompoundsToConfirmed(t *testing.T) {
+	s := New(DefaultWeights())
+	h := realBrowserHeaders()
+	delete(h, "Sec-Fetch-Site") // a headless crawler that also drops fetch metadata
+	rs := s.Score(protoView{view{ua: headlessChromeUA, headers: h, proto: 2}})
+	// automation_ua(2) + no_fetch_metadata(2) = 4, the confirm threshold.
+	if total(rs) < 4 {
+		t.Errorf("a headless UA plus a missing browser header should compound to Confirmed, got %d (%v)", total(rs), rs)
+	}
+}
+
+func TestStealthHeadlessCustomUANotCaught(t *testing.T) {
+	s := New(DefaultWeights())
+	// Honest limitation, pinned: a headless browser that overrides its UA to a normal
+	// Chrome string, sends real browser headers, and carries a genuine browser TLS and
+	// h2 fingerprint is indistinguishable at this layer and must score 0. Catching it
+	// needs behavioural analysis a reverse proxy cannot do; this is documented scope.
+	rs := s.Score(protoView{view{ua: chromeUA, headers: realBrowserHeaders(), proto: 2, tlsfp: "x", h2: chromeH2}})
+	if total(rs) != 0 {
+		t.Errorf("stealth headless with a spoofed UA is out of scope and must score 0, got %d (%v)", total(rs), rs)
 	}
 }

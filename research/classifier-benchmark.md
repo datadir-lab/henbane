@@ -38,7 +38,7 @@ Everything below is reproducible: `go test -v ./research/classifierbench`.
 
 ## 1. Methodology
 
-**Corpus.** 22 representative request shapes. Each client's headers are its
+**Corpus.** 23 representative request shapes. Each client's headers are its
 **verified defaults**, read from project source or official docs (cited in §7),
 not guessed. The first version of this study got some of these wrong (e.g. axios sends `gzip, compress, deflate, br`,
 not zstd; Java HttpClient defaults to HTTP/2 and sends no `Accept-Encoding`;
@@ -52,9 +52,9 @@ environment-dependent and only included where a client sends them by default.
 | `human` | modern mainstream browser | pass |
 | `human-edge` | legitimate browser predating Fetch Metadata | pass (but is flagged, the FP surface) |
 | `good-bot` | verified crawler (Googlebot) | pass (rescued by the verifier, not the scorer) |
-| `spoofer` | naive scraper library wearing a browser UA | caught |
+| `spoofer` | naive scraper library wearing a browser UA (and default headless Chrome, which announces `HeadlessChrome`) | caught |
 | `spoofer-hard` | careful scraper, header-identical to an old browser | caught, but indistinguishable from `human-edge` |
-| `known-miss` | real headless browser | out of this signal class |
+| `known-miss` | stealth headless browser (UA overridden to a normal browser string) | out of this signal class |
 
 **What is measured.** The `consistency` scorer *in isolation* (not the full
 stack, which adds denylists, velocity, TLS-fp denylist, good-bot verification,
@@ -102,11 +102,15 @@ Negatives = modern browsers only (the edge-browser FP is reported separately in 
 |---|---|---|---|
 | naive scrapers | 1.00 | 1.00 | 1.00 |
 | + careful (header-perfect) scraper | 1.00 | 1.00 | 1.00 |
-| + real headless browsers | 1.00 | **0.83** | 0.91 |
+| + real headless browsers | 1.00 | **0.85** | 0.92 |
 
-Naive and even a careful single-signal scraper are caught. Real headless browsers
-(which send the full browser shape) are not: the ceiling. §2.7 shows the HTTP/2
-fingerprint lifting the careful-scraper case above it; headless remains the gap.
+Naive and even a careful single-signal scraper are caught, and so is default headless
+Chrome: it keeps a self-identifying `HeadlessChrome` User-Agent that no real browser
+emits. What is NOT caught is stealth headless, a real browser engine whose UA has been
+overridden to a normal browser string: it sends the full browser shape and a genuine
+browser h2 fingerprint, so nothing at this layer separates it from a human. That is the
+ceiling. §2.7 shows the HTTP/2 fingerprint lifting the careful-scraper case above it;
+stealth headless remains the gap.
 
 ### 2.2 The false-positive surface (the critical finding)
 
@@ -226,9 +230,10 @@ its `a,m,p,s` pseudo-header order (no browser leads with `:authority`), and the 
 client by its bare `HEADER_TABLE_SIZE 4096` even though it copies Chrome's
 pseudo-header order.
 
-What it does **not** do: catch real headless browsers. They send a genuine browser's
-h2 fingerprint, so under the h2 signal they stay at Pass, the same ceiling the header
-layer hits. Only behavioural or device fingerprinting would separate those.
+What it does **not** do: catch stealth headless browsers (a real browser engine whose
+UA has been overridden to hide the `HeadlessChrome` token). They send a genuine
+browser's h2 fingerprint, so under the h2 signal they stay at Pass, the same ceiling the
+header layer hits. Only behavioural or device fingerprinting would separate those.
 
 **Caveat.** A scraper can forge its h2 fingerprint too (curl-impersonate and
 curl_cffi do). Forging a browser-grade h2 stack is far more work than copying
@@ -317,7 +322,7 @@ precisely the traffic the header layer can't touch.
 
 - **Synthetic corpus.** These are *representative* shapes from verified defaults,
   not captured live traffic. Real distributions vary; a user can set a
-  non-default client config. The corpus is small (21). Treat the numbers as
+  non-default client config. The corpus is small (23). Treat the numbers as
   illustrative of the *mechanism*, not population estimates.
 - **Self-benchmark.** The same author wrote the corpus and the detector. The
   mitigations are using cited real defaults, including the failing cases, and an

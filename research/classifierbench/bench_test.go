@@ -58,6 +58,9 @@ const (
 	// Googlebot smartphone UA carries Chrome+Safari tokens, so the scorer treats it as
 	// a browser-claimer; the crawl fetch sends no Sec-Fetch.
 	googlebotUA = "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+	// headlessChromeUA is headless Chrome's DEFAULT UA: a full Chrome engine (every
+	// browser header, a real Chrome h2 fingerprint) that still announces HeadlessChrome.
+	headlessChromeUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/131.0.0.0 Safari/537.36"
 )
 
 // Measured Akamai HTTP/2 fingerprints (SETTINGS|WINDOW_UPDATE|PRIORITY|pseudo-order),
@@ -129,7 +132,15 @@ func corpus() []profile {
 		{"stealth-scraper", spooferHard, chromeUA, preFetchMetadata(), 2, h2Go},          // Go h2 client: a,m,p,s pseudo-order
 		{"stealth-scraper-httpx", spooferHard, chromeUA, preFetchMetadata(), 2, h2Httpx}, // httpx (http2=True): copies Chrome's order but sends table size 4096
 
-		// --- real headless browsers: send the full browser shape AND a real browser h2 fingerprint; out of this signal class ---
+		// --- naive headless: default headless Chrome keeps its "HeadlessChrome" UA, a
+		// self-identifying automation token, so the consistency scorer catches it even
+		// though its headers and h2 fingerprint are a real browser's. ---
+		{"headless-chrome-naive", spoofer, headlessChromeUA, browserHeaders(), 2, h2Chrome},
+
+		// --- stealth headless: a real browser engine driven by automation that has
+		// overridden its UA to a normal browser string. Full browser shape AND a real
+		// browser h2 fingerprint, no automation token: out of this signal class. Catching
+		// it needs behavioural analysis a reverse proxy cannot do (documented scope). ---
 		{"headless-chrome", knownMiss, chromeUA, browserHeaders(), 2, h2Chrome},
 		{"headless-playwright", knownMiss, firefoxUA, browserHeaders(), 2, h2Firefox},
 	}
