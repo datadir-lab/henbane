@@ -102,16 +102,19 @@ func main() {
 		}
 	}
 
-	// splice_ref is a research probe, not a shipped strategy: splice over the
-	// reference corpus (the register the perplexity model expects) instead of the
-	// embedded one. It isolates whether sentence-splicing survives when the corpus
-	// matches the filter's distribution, versus the embedded-corpus mismatch the
-	// shipped `splice` shows. Single-site only.
+	// splice_ref and babble_ref are research probes, not shipped strategies. They run
+	// the SHIPPED splice and babble generators over the reference corpus (the register
+	// the perplexity model expects) instead of the embedded one, isolating whether a
+	// strategy survives when its corpus matches the filter's distribution. They are
+	// byte-for-byte what the gateway produces with poison.corpus_path pointed at a
+	// matched corpus: only the corpus differs from the embedded default. Single-site only.
 	if *sites <= 1 {
 		if raw, err := os.ReadFile(*refPath); err == nil {
-			gen := labyrinth.New(*links, splice.New(raw, *baseSalt), *paragraphs)
+			spGen := labyrinth.New(*links, splice.New(raw, *baseSalt), *paragraphs)
+			bbGen := labyrinth.New(*links, babble.New(raw, *baseSalt), *paragraphs)
 			for i := 0; i < *n; i++ {
-				emitPage("splice_ref", "", fmt.Sprint(i), gen)
+				emitPage("splice_ref", "", fmt.Sprint(i), spGen)
+				emitPage("babble_ref", "", fmt.Sprint(i), bbGen)
 			}
 		}
 		// The baseline is site-agnostic; only emit it in single-site mode.

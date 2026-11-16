@@ -51,10 +51,10 @@ DATA = ROOT / "data"
 FIGS = ROOT / "figures"
 FIGS.mkdir(exist_ok=True)
 
-STRATEGIES = ["babble", "splice", "splice_ref", "markov_ref", "article", "canary", "baseline_real"]
+STRATEGIES = ["babble", "splice", "splice_ref", "babble_ref", "article", "canary", "baseline_real"]
 LABELS = {"babble": "babble (Markov)", "splice": "splice (embedded corpus)",
           "splice_ref": "splice_ref (matched corpus)",
-          "markov_ref": "markov_ref (matched corpus)",
+          "babble_ref": "babble_ref (matched corpus)",
           "article": "article (grammar)",
           "canary": "canary", "baseline_real": "real text (baseline)"}
 # Categorical palette validated colorblind-safe (CVD ΔE 9.1, normal-vision floor
@@ -65,12 +65,12 @@ LABELS = {"babble": "babble (Markov)", "splice": "splice (embedded corpus)",
 # "not a strategy". The low-contrast WARN colors are fine here: every figure ships
 # with markers, a legend, and a data table (the relief rule).
 COLORS = {"babble": "#eb6834", "splice": "#1baf7a", "splice_ref": "#2a78d6",
-          "markov_ref": "#4a3aa7",
+          "babble_ref": "#4a3aa7",
           "article": "#008300", "canary": "#eda100",
           "baseline_real": "#e87ba4"}
 # Distinct marker shapes so lines that trace the same path (several strategies all
 # cliff to 0% together) stay tellable apart by shape, not colour alone.
-MARKERS = {"babble": "o", "splice": "s", "splice_ref": "D", "markov_ref": "X",
+MARKERS = {"babble": "o", "splice": "s", "splice_ref": "D", "babble_ref": "X",
            "article": "^", "canary": "v", "baseline_real": "P"}
 
 
@@ -95,13 +95,6 @@ def markov_gen(m, order, n, rng):
     return " ".join(out[:n])
 
 
-_PUNCT_WORD = re.compile(r"[a-z]+|[.!?]")
-
-
-def markov_tokens(text):
-    """Words plus sentence-ending punctuation, so a Markov chain over these emits
-    sentence boundaries (the markov_ref strategy needs them to clear the C4 checks)."""
-    return _PUNCT_WORD.findall(text.lower())
 
 STOPWORDS = set("the be to of and a in that have i it for not on with he as you "
                 "do at this but his by from they we say her she or an will my one "
@@ -254,17 +247,11 @@ def main():
         d = json.loads(line)
         docs[d["strategy"]].append(extract_text(d["html"]))
 
-    # markov_ref: a research-probe generator. An order-2 Markov chain over the MATCHED
-    # reference corpus (the register the perplexity model expects), not the embedded
-    # one the shipped generators use. It tests whether a *generator* (not sentence
-    # splicing) survives the gauntlet once the corpus matches the filter's distribution.
-    ref_text = (DATA / "reference.txt").read_text(encoding="utf-8")
-    matched = tokens(ref_text)                       # words only, for the order-sweep experiment
-    mk = build_markov(markov_tokens(ref_text), 2)    # words + punctuation, for a C4-passing document
-    n_ref = len(docs["splice_ref"]) or 300
-    for i in range(n_ref):
-        raw = markov_gen(mk, 2, 170, random.Random(1000 + i))
-        docs["markov_ref"].append(re.sub(r"\s+([.!?])", r"\1", raw))  # attach " ." -> "."
+    # babble_ref (Henbane's shipped babble generator run over the matched reference
+    # corpus, byte-for-byte what the gateway emits with poison.corpus_path set) is
+    # loaded from samples.jsonl like every other real strategy. The matched-corpus
+    # tokens are kept here for the Markov-order bypass experiment further down.
+    matched = tokens((DATA / "reference.txt").read_text(encoding="utf-8"))
 
     train = (DATA / "reference_train.txt").read_text(encoding="utf-8")
     lm = Trigram(train)
@@ -537,7 +524,7 @@ def plot_perplexity_vs_order(lm, cut, matched):
             "coherence or generator sophistication. Match the corpus and even crude "
             "generation passes; mismatch it and nothing does. This is why the shipped "
             "generators (over the embedded corpus) are filtered, why `splice_ref` and "
-            "`markov_ref` (both over the matched corpus) survive the full gauntlet, and "
+            "`babble_ref` (both over the matched corpus) survive the full gauntlet, and "
             "why the one real lever is `poison.corpus_path` pointed at distribution-matched "
             "text.\n\n"
             "**Honest limit.** Passing perplexity is not the same as being coherent. An "
@@ -596,12 +583,12 @@ def plot_filter_frontier(ppls, cohs, ppl_cut, coh_cut):
             f"text's {g(ys, 'baseline_real'):.1f}), but their coined entity names are words "
             f"no reference model has seen, so perplexity is {g(xs, 'article'):.0f}, far above "
             f"the {ppl_cut:.0f} cutoff.\n"
-            f"- **`splice_ref` and `markov_ref` pass perplexity but fail coherence.** The "
+            f"- **`splice_ref` and `babble_ref` pass perplexity but fail coherence.** The "
             f"matched corpus buys local fluency (perplexity {g(xs, 'splice_ref'):.0f} and "
-            f"{g(xs, 'markov_ref'):.0f}), but recombining random sentences or Markov-generating "
+            f"{g(xs, 'babble_ref'):.0f}), but recombining random sentences or Markov-generating "
             f"word salad destroys topical continuity: shared content words drop from "
             f"{g(ys, 'baseline_real'):.1f} for real text to {g(ys, 'splice_ref'):.1f} and "
-            f"{g(ys, 'markov_ref'):.1f}.\n"
+            f"{g(ys, 'babble_ref'):.1f}.\n"
             "- **`babble` and `splice` (embedded) fail both.**\n\n"
             "So a poison generator must clear two orthogonal bars at once: distribution-matched "
             "vocabulary AND coherent discourse, while still being false. Clearing both is what a "
@@ -657,8 +644,8 @@ def write_report(rows, ppls, cut):
         r = rows[s]
         return 100 * r["dedup"] / (r["n"] or 1)
 
-    sr_ppl, sp_ppl, mr_ppl = med("splice_ref"), med("splice"), med("markov_ref")
-    sr_final, real_final, mr_final = finalpct("splice_ref"), finalpct("baseline_real"), finalpct("markov_ref")
+    sr_ppl, sp_ppl, br_ppl = med("splice_ref"), med("splice"), med("babble_ref")
+    sr_final, real_final, br_final = finalpct("splice_ref"), finalpct("baseline_real"), finalpct("babble_ref")
     filtered = [LABELS[s] for s in STRATEGIES
                 if s != "baseline_real" and rows[s]["dedup"] == 0]
 
@@ -667,10 +654,10 @@ def write_report(rows, ppls, cut):
               "## What the numbers say", "",
               f"- **Only the distribution-matched strategies clear the full gauntlet, and it "
               f"does not matter whether you splice or generate.** `splice_ref` (whole sentences "
-              f"recombined from the reference corpus) and `markov_ref` (a plain order-2 Markov "
+              f"recombined from the reference corpus) and `babble_ref` (Henbane's shipped babble "
               f"generator over that same corpus) both land near real-text perplexity "
-              f"({sr_ppl:.0f} and {mr_ppl:.0f} vs the ~{cut:.0f} cutoff) and survive through "
-              f"dedup ({sr_final:.0f}% and {mr_final:.0f}%). Everything over the *embedded* "
+              f"({sr_ppl:.0f} and {br_ppl:.0f} vs the ~{cut:.0f} cutoff) and survive through "
+              f"dedup ({sr_final:.0f}% and {br_final:.0f}%). Everything over the *embedded* "
               f"corpus ({', '.join(filtered)}) is filtered ~100% at the perplexity stage. The "
               f"lever is the corpus, not the generator (quantified below).",
               f"- **The lever is the corpus, not the generator.** `splice` over the *embedded* "
