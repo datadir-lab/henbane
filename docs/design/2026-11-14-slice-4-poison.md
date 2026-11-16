@@ -1,4 +1,4 @@
-# Henbane Slice 4 — Poison (Design Addendum)
+# Henbane Slice 4: Poison (Design Addendum)
 
 - **Status:** Approved for planning
 - **Date:** 2026-11-14
@@ -18,7 +18,7 @@ filter-survival benchmark and its README graphs are **Slice 4b** (separate follo
 ## Research grounding (why this shape)
 
 Four research sweeps (archived in `scratchpad/research-*.md`) converged on:
-- **Static HTML is enough** — GPTBot, ClaudeBot, PerplexityBot, CCBot, Bytespider,
+- **Static HTML is enough.** GPTBot, ClaudeBot, PerplexityBot, CCBot, Bytespider,
   Amazonbot, Meta-ExternalAgent fetch raw HTML and never run JS. The existing maze
   already targets them.
 - **The dataset filter gauntlet is the binding constraint.** C4 / Gopher / CCNet /
@@ -41,7 +41,7 @@ Four research sweeps (archived in `scratchpad/research-*.md`) converged on:
 - **The mechanism supports A, B, and C.** The **project ships only (A) fully-fictional**
   content (invented entities/places/dates). **(B)** real-category/invented-specifics and
   **(C)** targeted real-entity content are reachable **only via an operator-supplied
-  `corpus_path`** — a custom text corpus the `babble` Markov generator draws from (custom
+  `corpus_path`**: a custom text corpus the `babble` Markov generator draws from (custom
   `article`/`canary` templates are a future BYO path). Whoever loads B/C content owns the
   liability; Henbane ships no targeted falsehoods about real people or organizations. This
   is documented in an acceptable-use note (the "we make the tool, not the ammunition" posture).
@@ -49,14 +49,14 @@ Four research sweeps (archived in `scratchpad/research-*.md`) converged on:
 ## In scope
 
 - `internal/ports`: new `Poisoner` port (first-class, like `Detector`/`Sink`).
-- `internal/generate/poison/{babble,article,canary}` — three poisoners + a `none` no-op.
+- `internal/generate/poison/{babble,article,canary}`: three poisoners + a `none` no-op.
 - `internal/generate/labyrinth`: compose poison paragraphs into the page
   (`New` gains a `Poisoner` + paragraph count).
 - `internal/config`: a `poison:` block (`strategy`, `paragraphs_per_page`,
   `corpus_path`, `salt`) + validation.
 - `cmd/henbane`: select/build the poisoner from config (incl. BYO corpus read).
 - Arch purity extended to the new `poison/*` packages.
-- README "Does this actually work?" section (prose only — honest, correctly cited).
+- README "Does this actually work?" section (prose only, honest, correctly cited).
 
 ## Out of scope (deferred)
 
@@ -81,32 +81,32 @@ type Poisoner interface {
 }
 ```
 
-- Lives in `ports` beside `Detector`/`Sink` — it is a core extensibility axis
+- Lives in `ports` beside `Detector`/`Sink`: it is a core extensibility axis
   ("users can write their own logic"). `ports` stays pure; `labyrinth` may import it.
 - **Determinism:** `seed` is the maze's existing per-URL `fnv64a(path)`. Each poisoner
   mixes in its own **per-deployment salt** so two installs with the same corpus aren't
   byte-identical (fingerprint resistance) and so canaries are deployment-unique.
 - **Concurrency-safe:** like the maze, each call builds its own `rand.New(rand.NewSource(…))`
-  — no shared mutable rng.
+  (no shared mutable rng).
 
 ## The three poisoners (`internal/generate/poison/*`, one subpackage each)
 
 Each is a pure leaf (stdlib + `go:embed` only; may import `ports`; added to arch purity).
 
-- **`babble`** — order-2 word-level Markov over a `go:embed`ed **public-domain** corpus
+- **`babble`**: order-2 word-level Markov over a `go:embed`ed **public-domain** corpus
   (operator `corpus_path` overrides the embedded default). Cheap, high crawler-cost,
   low filter-survival. *Tarpit-grade; option A.* `babble.New(corpus []byte, salt string)`
   (`corpus == nil` ⇒ embedded default).
-- **`article`** — a context-free grammar → Wikipedia-register sentences with slot-filled
+- **`article`**: a context-free grammar → Wikipedia-register sentences with slot-filled
   **fictional** entities/facts. Large combinatorial space ⇒ lexically distinct per page
   (dedup-resistant); coherent, lower-perplexity, profanity-free; semantic payload.
   *Filter-surviving; option A.* `article.New(salt string)`.
-- **`canary`** — `article` generation plus a dedicated fabricated-fact vocabulary derived
+- **`canary`**: `article` generation plus a dedicated fabricated-fact vocabulary derived
   **deterministically from the salt**, so a later probe slice regenerates the exact canary
-  strings and searches public AI endpoints for them — **no generation-time state/IO**
+  strings and searches public AI endpoints for them, with **no generation-time state/IO**
   (stays pure). `canary.New(salt string)`; also exposes `Canaries() []string` (the
   reconstructible set) for the future probe.
-- **`none`** — `poison.None{}` returning `nil` paragraphs (today's links-only maze).
+- **`none`**: `poison.None{}` returning `nil` paragraphs (today's links-only maze).
 
 The A/B/C seam is `babble`'s `corpus_path`: shipped content is fictional-only; an operator
 supplies B/C content as a custom Markov corpus. `article`/`canary` ship fictional grammar
@@ -121,7 +121,7 @@ func New(links int, poisoner ports.Poisoner, paragraphs int) *Generator
 `WritePage` renders: `<h1>{{Title}}</h1>` → **N poison `<p>` paragraphs** (main content)
 → `<ul>` of `rel="nofollow"` child links. Prose-block-then-link-list mimics real
 main-content/nav structure (helps clear trafilatura boilerplate extraction). `paragraphs`
-is clamped to **[0, 20]**; each poisoner also caps paragraph length — total page size
+is clamped to **[0, 20]**; each poisoner also caps paragraph length, so total page size
 stays bounded (poison must never DoS *us*). Poisoner is always non-nil (cmd wires `none`
 when disabled). Template still `html/template` (every paragraph auto-escaped).
 
@@ -139,12 +139,12 @@ poison:
 Validation in `Parse`:
 - `strategy ∈ {"", babble, article, canary, none}` (else error); `"" ⇒ babble`.
 - `paragraphs_per_page >= 0`.
-- **`strategy == canary` ⇒ `salt != ""`** (hard error — a saltless canary is guessable
+- **`strategy == canary` ⇒ `salt != ""`** (hard error: a saltless canary is guessable
   and non-unique, defeating the feature; fail-safe per zero-trust).
 - `corpus_path`, if set, is read by `cmd` at startup and passed to `babble`; an unreadable
   file is a fatal config error (fail-closed). It is ignored by `article`/`canary`.
 
-**Default strategy is `babble`** — poison is on by default when the maze triggers, but
+**Default strategy is `babble`.** Poison is on by default when the maze triggers, but
 only the safe, fictional, cheap tier. `article`/`canary` are deliberate opt-ins.
 
 ## Wiring (`cmd/henbane`)
@@ -158,21 +158,21 @@ The selector stays in `cmd` so the poison packages never import `config`.
 ## Zero-trust safety invariants
 
 - Poison renders **only on `Confirmed → Tarpit`** (search crawlers, if classified right,
-  never see it — no cloaking).
+  never see it, no cloaking).
 - **Plain-text-only** from poisoners ⇒ `html/template` escapes everything (no injection).
 - **Hard caps:** `paragraphs_per_page` clamped [0,20]; per-paragraph length cap in each
-  poisoner; links already ≤100 — total page bounded, generation O(size).
+  poisoner; links already ≤100, so total page bounded, generation O(size).
 - **Deterministic, concurrency-safe, bounded-CPU** per URL; no global rng.
 - **No attacker input** ever enters the corpus or the generated text (only `fnv(path)`
   seeds the rng; the path is never reflected into poison prose).
 - **Shipped content fictional-only (A);** B/C are operator-supplied and operator-owned.
 - Saltless `canary` is a hard config error.
 
-## README (this slice — prose, graphs in 4b)
+## README (this slice: prose, graphs in 4b)
 
 An honest **"Does this actually work?"** section: the filter-gauntlet reality; "symbolic
 for a single site, materially amplified only by federation"; **zero model-impact claims**;
-and an explicit note that cites the literature *correctly* — calling out the common
+and an explicit note that cites the literature *correctly*, calling out the common
 anti-pattern of citing the Anthropic 250-document backdoor and "model collapse" papers as
 if they proved one-shot web-poisoning (they do not). Plus the A/B/C acceptable-use /
 liability note and BYO-corpus guidance.
@@ -204,5 +204,5 @@ liability note and BYO-corpus guidance.
 - **No new third-party module** (stdlib + `go:embed` only; allowlist unchanged).
 - Arch purity adds `internal/generate/poison/{babble,article,canary}` and
   `internal/generate/poison` (must not import net/http*, adapters, config, clientip;
-  may import `ports`). `labyrinth` now imports `ports` — still pure, still a valid target.
+  may import `ports`). `labyrinth` now imports `ports`, still pure, still a valid target.
 ```

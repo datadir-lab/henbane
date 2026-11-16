@@ -7,7 +7,7 @@
 The `canary` poison strategy already planted "trackable" fabricated phrases, but the
 claim was hollow in two ways:
 
-1. **Guessable.** Phrases were derived with FNV-1a seeding `math/rand` — a
+1. **Guessable.** Phrases were derived with FNV-1a seeding `math/rand`, a
    non-cryptographic hash feeding a predictable PRNG. Given the derivation code
    (which is open source) an attacker who learned or guessed a deployment's salt, or
    who simply enumerated likely salts, could reconstruct a deployment's canaries and
@@ -28,24 +28,24 @@ Three pieces, all zero-dependency (stdlib only), none on the request path.
 `HMAC-SHA256(key=salt, msg=i)` instead of FNV+`math/rand`. The 32 MAC bytes are an
 entropy budget a small `picker` consumes deterministically. Properties:
 
-- **Unguessable without the salt** — HMAC is a PRF; without the key the output is
+- **Unguessable without the salt.** HMAC is a PRF; without the key the output is
   computationally indistinguishable from random, so phrases cannot be predicted,
   forged, or pre-filtered.
-- **Stable and deterministic** — same salt ⇒ same set, across restarts and hosts, so
+- **Stable and deterministic.** Same salt ⇒ same set, across restarts and hosts, so
   already-planted poison stays attributable. `TestCanaryKnownVector` pins the
   algorithm (salt `known-vector-salt` ⇒ `Velthu Casmarvel 9017 standard`): any change
   to the derivation that would silently invalidate deployed canaries fails the test.
-- **Per-deployment disjoint** — different salts yield disjoint sets, so one
+- **Per-deployment disjoint.** Different salts yield disjoint sets, so one
   deployment can never be attributed another's hits.
 
-Phrase shape is unchanged — `<Coined> <Coined> <4-digit> standard` — chosen to read
+Phrase shape is unchanged, `<Coined> <Coined> <4-digit> standard`, chosen to read
 like a plausible technical standard an AI is tempted to repeat. The 4-digit number is
 load-bearing for the probe (below). The set size moved 8 → 16 for a richer search
 surface. Placement within a page still uses `math/rand` seeded from the salt+page
 seed; placement is not security-sensitive (a scraper sees the whole page anyway), so
 only the *phrase content* needs to be keyed.
 
-### 2. Attribution — `Canary.Find`
+### 2. Attribution: `Canary.Find`
 
 `Find(text) (phrase, bool)` reports whether any of this deployment's phrases appears
 in a given text. It is a membership search over our own known phrases (not a secret
@@ -58,21 +58,21 @@ text reproduced *this* deployment's planted content.
 A subcommand dispatched in `main` before config parsing (like `--version`), so it
 never needs the serving flags:
 
-- **`list`** — print the deployment's phrases (search them in any AI assistant).
-- **`check`** — `Find` over stdin or args; exit 0 on a match (scriptable), 1 otherwise.
-- **`probe`** — the opt-in automated search (below).
+- **`list`**: print the deployment's phrases (search them in any AI assistant).
+- **`check`**: `Find` over stdin or args; exit 0 on a match (scriptable), 1 otherwise.
+- **`probe`**: the opt-in automated search (below).
 
 Salt resolves from `-salt` or the config's `poison.salt`.
 
 ## The probe and the echo problem
 
 The subtle correctness point. A naive probe would ask the endpoint "tell me about
-`<full canary phrase>`" and check whether the phrase comes back — but a model will
+`<full canary phrase>`" and check whether the phrase comes back, but a model will
 happily **echo the phrase straight out of the prompt**, retrieving nothing. That is a
 false positive for *retrieval reach*, which is the only thing the probe can honestly
 claim to measure.
 
-The fix: ask about the **coined name only** (the phrase minus its number — split by
+The fix: ask about the **coined name only** (the phrase minus its number, split by
 `splitCanary`), and count a **HIT** only if the response reproduces the **full phrase
 including the reference number**. The number exists nowhere but on the operator's
 planted pages, so a model can only produce it by having retrieved that content. The
@@ -89,12 +89,12 @@ client timeout, non-2xx surfaced as an error, token never logged.
 
 ## Honest framing (preserved)
 
-A probe hit measures **live retrieval and repetition reach** — an AI-search endpoint
+A probe hit measures **live retrieval and repetition reach**. An AI-search endpoint
 fetched the operator's page and reproduced its content. It is **not** evidence of
 training-set membership, which is unobservable from outside; the README's "Does this
 actually work?" section already lays this out and the canary tooling does not weaken
 it. Documented limitations: single-field JSON body (chat-completion APIs with a
-nested `messages` array are out of scope — use `list` + manual search); probing
+nested `messages` array are out of scope, use `list` + manual search); probing
 reveals a canary to the endpoint, so a cold first run is cleaner evidence than
 repeated runs; `weak` lines are leads, not results.
 
@@ -110,6 +110,6 @@ repeated runs; `weak` lines are leads, not results.
 - `internal/generate/poison/canary`: known-vector pin, set uniqueness/size,
   `Find` attributes own canaries and rejects foreign ones, determinism.
 - `cmd/henbane`: `list`/`check` exit codes and output, `splitCanary`, and the probe
-  classifier (HIT/weak/absent) against an `httptest` fake AI — including an
+  classifier (HIT/weak/absent) against an `httptest` fake AI, including an
   end-to-end run through a temp config file with a bearer token from the environment,
   and rejection of a non-http(s) endpoint.

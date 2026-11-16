@@ -1,4 +1,4 @@
-# Henbane — Release Engineering (Foundation + Docker)
+# Henbane: Release Engineering (Foundation + Docker)
 
 - **Status:** Draft for review
 - **Date:** 2026-11-14
@@ -24,13 +24,13 @@
 ### Non-goals (this spec)
 - Publishing to Docker Hub (GHCR only; Docker Hub can be added later).
 - A rolling `:edge` image on `main` (decided out of scope; images are released only).
-- Automated version bumping / changelog PRs (release-please etc.) — manual tags for now.
+- Automated version bumping / changelog PRs (release-please etc.): manual tags for now.
 - Caddy plugin, middleware, Nix, Homebrew artifacts (deferred).
 
 ## 2. Locked decisions
 - **Build tooling:** GoReleaser, plus `slsa-framework/slsa-github-generator` reusable
   workflows for L3 provenance.
-- **Supply-chain bar:** maximal — cosign (keyless, OIDC/Fulcio/Rekor) + SLSA L3 + syft SBOM.
+- **Supply-chain bar:** maximal: cosign (keyless, OIDC/Fulcio/Rekor) + SLSA L3 + syft SBOM.
 - **Binary platforms:** linux {amd64, arm64}, darwin {amd64, arm64}, windows {amd64}.
 - **Registry:** `ghcr.io/datadir-lab/henbane` only.
 - **Trigger:** push of a `v*` semver tag. Pre-1.0 (`v0.x`).
@@ -116,7 +116,7 @@ Everything is reproducible-friendly (`-trimpath`, `mod_timestamp`, pinned base d
 - **Config lint:** a `goreleaser check` step (and `--snapshot` dry run) added to `ci.yml`,
   triggered when release files change, so a broken `.goreleaser.yaml` fails PR CI.
 - **Dry run:** `goreleaser release --snapshot --clean` builds every target and the image
-  locally and publishes nothing — the main guard against release-day breakage.
+  locally and publishes nothing, the main guard against release-day breakage.
 - **First real cut:** tag `v0.1.0` to exercise the full path end-to-end; then verify the
   published signatures, SBOMs, and L3 provenance from a clean machine before announcing.
 - **Acceptance criteria:** a tagged release yields, for every target, a signed archive +
@@ -141,12 +141,12 @@ Everything is reproducible-friendly (`-trimpath`, `mod_timestamp`, pinned base d
   `.dockerignore` if needed for the release Dockerfile context.
 
 ## 12. Deferred / future work
-- **Caddy plugin release** — once the Caddy module (design slice 10) exists: `xcaddy` build
+- **Caddy plugin release**: once the Caddy module (design slice 10) exists: `xcaddy` build
   matrix, a `caddy`-with-henbane image, and provenance for both. Separate spec.
-- **Nix** — a flake exposing the package + a NixOS systemd module; can consume release
+- **Nix**: a flake exposing the package + a NixOS systemd module; can consume release
   binaries or build from source. Separate spec.
-- **Homebrew tap** and **release automation** (release-please) — easy GoReleaser add-ons later.
-- **Docker Hub** mirror — optional second registry.
+- **Homebrew tap** and **release automation** (release-please): easy GoReleaser add-ons later.
+- **Docker Hub** mirror: optional second registry.
 
 ## 13. Risks & mitigations
 - *GoReleaser is a large dependency in the release path.* → Pin by SHA, keep the config

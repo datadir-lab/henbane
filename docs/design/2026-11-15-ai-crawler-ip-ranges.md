@@ -20,7 +20,7 @@ many scrapers that spoof their User-Agents.
 
 ## Approach
 
-A third good-bot verifier on the existing `ports.Verifier` seam — identical in
+A third good-bot verifier on the existing `ports.Verifier` seam, identical in
 shape to `goodbot`, but the proof is **IP membership in a published CIDR set**
 instead of a DNS round-trip:
 
@@ -34,20 +34,20 @@ instead of a DNS round-trip:
    (`off` by default → no opinion, detectors decide).
 4. UA matches nothing → no opinion.
 
-Verification is a pure in-memory check — unlike FCrDNS, there is **no I/O at
+Verification is a pure in-memory check. Unlike FCrDNS, there is **no I/O at
 all** on (or off) the request path.
 
 ## Bundled data, generated from first-party feeds
 
-`internal/detect/crawlerips/gen/main.go` fetches each vendor's own feed —
-`openai.com/gptbot.json`, `claude.com/crawling/bots.json`,
-`perplexity.ai/perplexitybot.json`, etc. (all share Google's
-`{prefixes:[{ipv4Prefix|ipv6Prefix}]}` schema) — and writes `data_gen.go`. Every
+`internal/detect/crawlerips/gen/main.go` fetches each vendor's own feed
+(`openai.com/gptbot.json`, `claude.com/crawling/bots.json`,
+`perplexity.ai/perplexitybot.json`, etc., all sharing Google's
+`{prefixes:[{ipv4Prefix|ipv6Prefix}]}` schema) and writes `data_gen.go`. Every
 prefix is parsed and re-emitted in masked, sorted, de-duplicated form, so the
 bundled snapshot is guaranteed valid and produces stable diffs. Refresh with
 `go generate ./internal/detect/crawlerips/...`.
 
-**Only first-party feeds** are used — never a community aggregator — so the trust
+**Only first-party feeds** are used, never a community aggregator, so the trust
 root is the vendor itself. `Defaults()` skips any prefix that fails to parse
 rather than panicking, so a bad snapshot can never crash the gateway at startup.
 
@@ -59,7 +59,7 @@ rather than panicking, so a bad snapshot can never crash the gateway at startup.
 - **Fail safe**: the default `spoof_tier: off` means an unverified claimant gets
   *no opinion* (the normal detectors handle it), never an accidental allow. Only
   a positive IP-range match grants the allow.
-- **UA is never trusted on its own** — it only selects *which* range set to check
+- **UA is never trusted on its own**: it only selects *which* range set to check
   the IP against. The IP is the authority.
 - **Allow-listing is opt-in and bounded**: OAI-AdsBot is deliberately excluded
   from the bundled set (ad infrastructure, not a content crawler).
@@ -68,8 +68,8 @@ rather than panicking, so a bad snapshot can never crash the gateway at startup.
 
 Published ranges drift. The bundled snapshot is a point-in-time copy; the safe
 failure mode dominates (a newly-published crawler IP is simply *not yet verified*
-→ no opinion → detectors decide). The one residual risk — a retired crawler IP
-reassigned to a spoofer — is mitigated by periodic regeneration. A background
+→ no opinion → detectors decide). The one residual risk, a retired crawler IP
+reassigned to a spoofer, is mitigated by periodic regeneration. A background
 refresher that re-fetches the feeds and swaps the set atomically (reusing the
 federation-style async pattern, off by default) is a clean follow-up.
 

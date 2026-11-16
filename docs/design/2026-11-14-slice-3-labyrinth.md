@@ -1,4 +1,4 @@
-# Henbane Slice 3 — Labyrinth (Design Addendum)
+# Henbane Slice 3: Labyrinth (Design Addendum)
 
 - **Status:** Approved for planning
 - **Date:** 2026-11-14
@@ -18,13 +18,13 @@ Serve `Confirmed` (honeypot-flagged) clients an **infinite maze of generated lin
 - Arch purity extended to `internal/generate/labyrinth`.
 
 ## Out of scope (deferred)
-- Markov / plausible-but-wrong **poison text** (Slice 4) — Slice-3 pages are links only.
+- Markov / plausible-but-wrong **poison text** (Slice 4). Slice-3 pages are links only.
 - A configurable tier→action map (Confirmed→Tarpit is the fixed default this slice).
 - Rate-limiting / adaptive maze depth.
 
 ## Disposition philosophy (confirmed)
-- **Denylist → Block → 403 + fail2ban line** — banish a known-bad actor (firewall ban).
-- **Honeypot-confirmed → Tarpit → maze (200), NO fail2ban** — *detain* them; the point is to
+- **Denylist → Block → 403 + fail2ban line**: banish a known-bad actor (firewall ban).
+- **Honeypot-confirmed → Tarpit → maze (200), NO fail2ban**: *detain* them; the point is to
   keep them crawling the maze (and poison them in Slice 4). Banning would make them leave.
 - The fail2ban sink keeps firing only on `Action == Block`, so tarpitted clients get no ban
   line. **No fail2ban change needed.**
@@ -43,7 +43,7 @@ func (g *Generator) WritePage(w io.Writer, path string) error
   re-crawl); different paths → different pages.
 - **Unbounded:** each page emits `links` child `<a href>`s to distinct child paths derived from
   the parent path + random segments, so following any link yields a fresh page forever.
-- **Bounded cost:** `links` clamped ≤100; page is small, generation is O(links) — cheaper to
+- **Bounded cost:** `links` clamped ≤100; page is small, generation is O(links), cheaper to
   serve than for the crawler to fetch. Output via `html/template` (auto-escaped). Links carry
   `rel="nofollow"`.
 - Pure leaf: takes `io.Writer` + `path`; imports no `ports`, no transport. Added to the arch
@@ -76,7 +76,7 @@ labyrinth:
 ## Wiring (`cmd/henbane`)
 
 Build `labyrinth.New(cfg.Labyrinth.LinksPerPage)`; pass it to `proxy.New`. Nothing else
-changes in detector assembly — the honeypot already produces `Confirmed`, which now maps to
+changes in detector assembly: the honeypot already produces `Confirmed`, which now maps to
 Tarpit and routes every flagged-client request into the maze.
 
 ## Testing (TDD)

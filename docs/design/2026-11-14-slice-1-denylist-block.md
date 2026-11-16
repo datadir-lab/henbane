@@ -1,4 +1,4 @@
-# Henbane Slice 1 — Denylist → Block + fail2ban (Design Addendum)
+# Henbane Slice 1: Denylist → Block + fail2ban (Design Addendum)
 
 - **Status:** Approved for planning
 - **Date:** 2026-11-14
@@ -13,22 +13,22 @@ Introduce **secure client-IP resolution** (trusted-proxy aware) so the denylist 
 the real client across all form factors.
 
 ## In scope
-- `internal/clientip` resolver (stdlib) — rightmost-non-trusted algorithm.
+- `internal/clientip` resolver (stdlib): rightmost-non-trusted algorithm.
 - Classifier upgrade: `Decide` returns `Block`/`Blocked` for denylisted clients.
 - Proxy `ActionBlock` → 403 (fail-closed default remains the backstop).
 - `fail2ban` sink + shipped `deploy/fail2ban/` filter and jail snippet.
 - Config: `trusted_proxies`, `deny.cidrs`, `deny.user_agents`, `sinks.fail2ban`.
 
 ## Out of scope (deferred)
-- Single-IP forwarding headers (`X-Real-IP`, Cloudflare `CF-Connecting-IP`) — different parse; fast-follow.
+- Single-IP forwarding headers (`X-Real-IP`, Cloudflare `CF-Connecting-IP`): different parse; fast-follow.
 - UA **regex** matching (substring only for now).
 - RFC 7239 `Forwarded` header.
-- Honeypot tripwire / confirmed tier (Slice 2), labyrinth/poison (Slice 3–4).
+- Honeypot tripwire / confirmed tier (Slice 2), labyrinth/poison (Slice 3-4).
 
 ## Client-IP resolution (`internal/clientip`)
 
 Security-grade "rightmost-non-trusted" algorithm (per adam-p / realclientip-go), reimplemented
-in stdlib (`net/netip`, `net`, `strings`) — **not** imported, to honor the zero-dep rule.
+in stdlib (`net/netip`, `net`, `strings`), **not** imported, to honor the zero-dep rule.
 
 ```
 func NewResolver(trusted []netip.Prefix) *Resolver
@@ -48,7 +48,7 @@ func (r *Resolver) ClientIP(remoteAddr string, xff []string) netip.Addr
 
 **Placement (hexagonal):** the **proxy adapter** owns a `*Resolver` and `requestView.IP()`
 returns `resolver.ClientIP(r.RemoteAddr, r.Header.Values("X-Forwarded-For"))`. The core
-classifier still only sees `RequestView.IP()` — arch purity holds. This also retires the
+classifier still only sees `RequestView.IP()`. Arch purity holds. This also retires the
 Slice-0 "`IP()` silently returns zero Addr" debt.
 
 ## Classifier (`internal/core`)
@@ -98,8 +98,8 @@ henbane: action=ban ip=203.0.113.9 tier=blocked reason=denylist_ua ua="GPTBot/1.
 - Non-blocking, never errors the request path (per `ports.Sink` contract).
 
 Shipped assets:
-- `deploy/fail2ban/henbane.conf` — filter with a `failregex` matching the line above.
-- `deploy/fail2ban/jail.local` — example jail (`logpath`, `maxretry`, `bantime`).
+- `deploy/fail2ban/henbane.conf`: filter with a `failregex` matching the line above.
+- `deploy/fail2ban/jail.local`: example jail (`logpath`, `maxretry`, `bantime`).
 
 ## Configuration additions (`henbane.yaml`)
 
@@ -125,7 +125,7 @@ opened `path`. Opening the fail2ban file is a `main`/wiring concern; the sink ju
 `io.Writer`.
 
 ## Testing (TDD)
-- `clientip`: table tests — edge mode; single trusted proxy; multi-hop; spoofed leftmost
+- `clientip`: table tests: edge mode; single trusted proxy; multi-hop; spoofed leftmost
   ignored; `:port` stripped; IPv6 brackets; malformed skipped; all-trusted fallback.
 - `core`: deny-by-CIDR; deny-by-UA (case-insensitive); allow otherwise; correct Event/Signal.
 - `proxy`: `ActionBlock` → 403 and upstream not hit.

@@ -5,7 +5,7 @@
 ## Problem
 
 Henbane ships three form factors (reverse proxy, embeddable middleware, Caddy
-module), but the two most common front proxies — **nginx** and **Traefik** —
+module), but the two most common front proxies (**nginx** and **Traefik**)
 can't load a Go plugin. Operators running them had no way to put Henbane's
 classifier in front of their site without replacing their proxy. Both, however,
 support an **external authorization** pattern (nginx `auth_request`, Traefik
@@ -32,7 +32,7 @@ authz.New( gate.Wrap(204-handler), verifyPath )
    `clientip.Resolver` via `X-Forwarded-For`.
 
 2. **Status adaptation (`authWriter`).** ForwardAuth treats any `2xx` as "allow".
-   The gate writes `204` for allow but `200` for a challenge page or maze — which
+   The gate writes `204` for allow but `200` for a challenge page or maze, which
    would be misread as allow. `authWriter` passes `204` and genuine non-`2xx`
    through unchanged, but rewrites any *other* `2xx` to the deny status (`403`)
    while preserving the body, so Traefik forwards the challenge/maze to the client
@@ -57,7 +57,7 @@ the sidecar only translates transport semantics.
 - **Only canonical `X-Forwarded-*` headers are trusted** (not `X-Original-*`
   aliases), and the deploy recipes overwrite them at the proxy, so a client can't
   forge a path the proxy didn't set. A bypass audit found that reading multiple
-  aliases let a client forge the one the proxy didn't overwrite — fixed by
+  aliases let a client forge the one the proxy didn't overwrite, fixed by
   trusting a single canonical name per field.
 - **Fail closed, never toward allow.** A forwarded URI that is present but
   unparseable returns `400`, rather than falling back to evaluating the auth
@@ -69,7 +69,7 @@ the sidecar only translates transport semantics.
 ## Config and caveat
 
 `sidecar.enabled` (or `--sidecar`) selects the form factor; `upstream` is then
-forbidden (they're mutually exclusive — caught at parse time). The maze/poison
+forbidden (they're mutually exclusive, caught at parse time). The maze/poison
 postures are delivered as the deny body rather than a `200` page, because `2xx`
 means allow to the front proxy; operators who want a `200` maze or precise
 byte-metering run the reverse-proxy or Caddy form factor. The sidecar is first

@@ -1,4 +1,4 @@
-# Henbane Slice 2 — Detector Framework + Honeypot Tripwire (Design Addendum)
+# Henbane Slice 2: Detector Framework + Honeypot Tripwire (Design Addendum)
 
 - **Status:** Approved for planning
 - **Date:** 2026-11-14
@@ -8,7 +8,7 @@
 
 Make the classifier **extensible**: replace the hardcoded `Decide` if-ladder with a
 pluggable **`Detector` pipeline**. Convert Slice-1's denylist into detectors (proving the
-framework), then add the first *behavioral* detector — a **honeypot tripwire** that flags a
+framework), then add the first *behavioral* detector, a **honeypot tripwire** that flags a
 client as `Confirmed` when it fetches a hidden trap path, so subsequent requests are
 escalated. New honeypot types and signals (rate, known-ASN, …) become new detectors, each
 its own vertical slice or a user-supplied plugin.
@@ -16,7 +16,7 @@ its own vertical slice or a user-supplied plugin.
 ## In scope
 - `ports.Detector` interface + `ports.Result`.
 - `core.Engine` refactor: compose detectors (highest tier wins), map tier→action.
-- `internal/detect/denylist` (IP + UA detectors — the Slice-1 logic, relocated).
+- `internal/detect/denylist` (IP + UA detectors, the Slice-1 logic, relocated).
 - `internal/detect/honeypot` (trap-path detector) + `internal/flagstore` (bounded TTL store).
 - Config: `honeypot.{enabled,path,flag_ttl,max_flagged}`.
 - Arch purity test extended to the new domain packages.
@@ -28,8 +28,8 @@ its own vertical slice or a user-supplied plugin.
 - A runtime Go-plugin loader (fragile; loading third-party `.so` into a security gateway is
   anti-zero-trust). Custom compiled-in detectors are available via the library/middleware
   form factor (Slice 9).
-- Labyrinth/poison (Slices 3–4): `Confirmed` maps to `Block` (403) *interim*.
-- Other honeypot types (timing traps, form traps, etc.) — future per-type slices.
+- Labyrinth/poison (Slices 3-4): `Confirmed` maps to `Block` (403) *interim*.
+- Other honeypot types (timing traps, form traps, etc.): future per-type slices.
 
 ## The Detector port
 
@@ -62,9 +62,9 @@ Running all detectors (not first-match) collects all signals and lets stateful d
 
 ## Detectors (`internal/detect/*`)
 
-- `denylist.NewIP(cidrs []netip.Prefix) ports.Detector` — fires `{denylist_ip, Blocked}` when
+- `denylist.NewIP(cidrs []netip.Prefix) ports.Detector`: fires `{denylist_ip, Blocked}` when
   `r.IP().Unmap()` ∈ cidrs.
-- `denylist.NewUA(uas []string) ports.Detector` — precomputes lowercased UAs; fires
+- `denylist.NewUA(uas []string) ports.Detector`: precomputes lowercased UAs; fires
   `{denylist_ua, Blocked}` on case-insensitive substring match.
 - `honeypot.New(trapPrefix string, store Store) ports.Detector`:
   - request path has prefix `trapPrefix` → `store.Flag(ip)` then fire `{honeypot, Confirmed}`.
@@ -72,17 +72,17 @@ Running all detectors (not first-match) collects all signals and lets stateful d
   - else no fire. (`ip = r.IP().Unmap()`; invalid IPs are not flagged/looked-up.)
   - `Store` is a consumer-defined interface (`Flag(netip.Addr)`, `Flagged(netip.Addr) bool`).
 
-Detectors import only `ports` + stdlib — transport-pure, arch-test enforced. They obtain the
+Detectors import only `ports` + stdlib: transport-pure, arch-test enforced. They obtain the
 client IP via `RequestView.IP()` (already resolved + spoofing-hardened by `clientip`).
 
-## Flag store (`internal/flagstore`) — zero-trust bounds
+## Flag store (`internal/flagstore`): zero-trust bounds
 
 In-memory, concrete, stdlib-only (`sync`, `time`, `net/netip`); satisfies honeypot's `Store`
 structurally (no import cycle):
 
 - `New(max int, ttl time.Duration) *Store`.
 - `Flag(ip)`: no-op on invalid IP; under a mutex, record `ip → expiry(now+ttl)`; **when at
-  `max`, evict expired entries first, then (if still full) one arbitrary entry** — a hard
+  `max`, evict expired entries first, then (if still full) one arbitrary entry**. A hard
   memory bound so an attacker tripping the trap from many IPs cannot exhaust memory.
 - `Flagged(ip) bool`: under a mutex, present-and-unexpired (lazy-delete on expiry).
 - Keyed on the resolved client IP. An attacker cannot *forge* a victim's IP (the `clientip`
@@ -90,7 +90,7 @@ structurally (no import cycle):
   victim's browser into fetching it cross-site and get that victim flagged. The honeypot
   detector therefore ignores trap hits carrying `Sec-Fetch-Site: cross-site` (browser-loaded
   cross-site subresources). Residual risks the operator owns: a shared-IP CDN front (one hit
-  flags everyone behind it — configure `trusted_proxies` correctly) and a modest `flag_ttl`.
+  flags everyone behind it, configure `trusted_proxies` correctly) and a modest `flag_ttl`.
 - Interface boundary so a shared *Poison Garden* feed can later implement the same `Store`.
 
 ## Configuration
@@ -117,7 +117,7 @@ configured), then `honeypot.New(path, flagstore.New(max, ttl))` (when enabled). 
 ## Operator guidance (shipped)
 
 `deploy/honeypot/README.md`: a copy-paste CSS-hidden, `rel=nofollow` link pointing at the
-trap path, plus a `robots.txt` `Disallow:` stanza — so a crawler that fetches it is provably
+trap path, plus a `robots.txt` `Disallow:` stanza, so a crawler that fetches it is provably
 ignoring the rules. (fail2ban already bans `honeypot`/`flagged` reasons via the existing
 `reason=\S+` filter; no filter change needed.)
 
