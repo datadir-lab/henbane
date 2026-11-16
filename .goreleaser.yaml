@@ -49,62 +49,55 @@ sboms:
 signs:
   - id: checksum-keyless
     cmd: cosign
-    signature: "${artifact}.sig"
-    certificate: "${artifact}.pem"
+    # cosign v3 (installed by cosign-installer v4) writes the Sigstore bundle
+    # format by default, so a single --bundle replaces the old
+    # --output-signature / --output-certificate pair — the certificate is
+    # embedded in the bundle, so there is nothing to point a `certificate:` at.
+    signature: "${artifact}.sigstore.json"
     args:
       - sign-blob
-      - "--output-signature=${signature}"
-      - "--output-certificate=${certificate}"
+      - "--bundle=${signature}"
       - "--yes"
       - "${artifact}"
     artifacts: checksum
     output: true
 
-dockers:
-  - id: amd64
-    goos: linux
-    goarch: amd64
+# A single dockers_v2 entry replaces the old per-arch `dockers` stanzas and the
+# `docker_manifests` that stitched them together: buildx builds both platforms and
+# pushes one multi-arch manifest, tagged :<version> (and :latest for stable
+# releases). `tags` × `images` cross-join, so one image × two tags gives both.
+dockers_v2:
+  - id: henbane
+    ids: [henbane]
     dockerfile: Dockerfile.goreleaser
-    use: buildx
-    image_templates:
-      - "ghcr.io/datadir-lab/henbane:{{ .Version }}-amd64"
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.title=henbane"
-      - "--label=org.opencontainers.image.source=https://github.com/datadir-lab/henbane"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-      - "--label=org.opencontainers.image.licenses=AGPL-3.0"
-  - id: arm64
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile.goreleaser
-    use: buildx
-    image_templates:
-      - "ghcr.io/datadir-lab/henbane:{{ .Version }}-arm64"
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.title=henbane"
-      - "--label=org.opencontainers.image.source=https://github.com/datadir-lab/henbane"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-      - "--label=org.opencontainers.image.licenses=AGPL-3.0"
-
-docker_manifests:
-  - name_template: "ghcr.io/datadir-lab/henbane:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/datadir-lab/henbane:{{ .Version }}-amd64"
-      - "ghcr.io/datadir-lab/henbane:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/datadir-lab/henbane:latest"
-    skip_push: auto
-    image_templates:
-      - "ghcr.io/datadir-lab/henbane:{{ .Version }}-amd64"
-      - "ghcr.io/datadir-lab/henbane:{{ .Version }}-arm64"
+    images:
+      - "ghcr.io/datadir-lab/henbane"
+    tags:
+      - "{{ .Version }}"
+      # Skip :latest on pre-releases — an empty tag is dropped, the dockers_v2
+      # equivalent of the old docker_manifests `skip_push: auto`.
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    # Keep the pushed image a plain multi-arch manifest (no buildx SBOM/provenance
+    # attestation manifests), matching prior releases: release.yml already SBOM-
+    # attests and SLSA-signs the resolved image digest, and attestation manifests
+    # would complicate that digest resolution.
+    sbom: false
+    labels:
+      org.opencontainers.image.title: "henbane"
+      org.opencontainers.image.source: "https://github.com/datadir-lab/henbane"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: "AGPL-3.0"
 
 docker_signs:
   - id: image-keyless
     cmd: cosign
-    artifacts: manifests
+    # "" (the default) targets the multi-arch images built by dockers_v2 — the
+    # manifest-list digest the old `artifacts: manifests` signed.
+    artifacts: ""
     args: ["sign", "--yes", "${artifact}@${digest}"]
     output: true
 
