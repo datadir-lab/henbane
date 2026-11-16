@@ -16,7 +16,7 @@ import (
 
 	"github.com/datadir-lab/henbane/internal/adapters/metrics"
 	"github.com/datadir-lab/henbane/internal/config"
-	"github.com/datadir-lab/henbane/internal/tlsfp"
+	"github.com/datadir-lab/henbane/tlsfp"
 )
 
 func main() {

@@ -13,7 +13,7 @@ import (
 	"github.com/datadir-lab/henbane/h2fp"
 	"github.com/datadir-lab/henbane/internal/clientip"
 	"github.com/datadir-lab/henbane/internal/ports"
-	"github.com/datadir-lab/henbane/internal/tlsfp"
+	"github.com/datadir-lab/henbane/tlsfp"
 )
 
 // MazeWriter writes a labyrinth page for a request path.

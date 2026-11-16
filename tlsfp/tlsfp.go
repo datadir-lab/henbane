@@ -128,9 +128,40 @@ func ConnContext(ctx context.Context, c net.Conn) context.Context {
 	return ctx
 }
 
+// strKey carries a pre-computed fingerprint string, as opposed to the holder that
+// the ConnContext path stashes.
+type strKey struct{}
+
+// WithFingerprint carries an already-computed TLS fingerprint in ctx. The ConnContext
+// holder path does not reach a connection that http.Server hands off via TLSNextProto
+// (an HTTP/2 connection taken over by golang.org/x/net/http2), because that server
+// builds request contexts itself. The h2capture module reads the fingerprint off the
+// connection with FromConn and re-attaches it here so FromContext still resolves it.
+func WithFingerprint(ctx context.Context, fp string) context.Context {
+	if fp == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, strKey{}, fp)
+}
+
+// FromConn returns the TLS fingerprint already captured for c, or "" if c did not come
+// through WrapListener. The TLS handshake has completed by the time ALPN dispatch runs,
+// so the fingerprint is populated and can be read directly off the connection.
+func FromConn(c net.Conn) string {
+	if tc, ok := c.(*tls.Conn); ok {
+		if fc, ok := tc.NetConn().(*fpConn); ok {
+			return fc.h.fp
+		}
+	}
+	return ""
+}
+
 // FromContext returns the TLS fingerprint captured for the request's connection,
 // or "" if TLS was not terminated here (or capture is not wired).
 func FromContext(ctx context.Context) string {
+	if s, ok := ctx.Value(strKey{}).(string); ok && s != "" {
+		return s
+	}
 	if h, ok := ctx.Value(ctxKey{}).(*holder); ok {
 		return h.fp
 	}

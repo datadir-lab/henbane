@@ -454,6 +454,12 @@ h2capture.Enable(srv)   // adds h2 fingerprint capture; HTTP/1.1 is served untou
 srv.ListenAndServeTLS(cert, key)
 ```
 
+Not embedding Henbane? The same module ships a prebuilt reverse proxy, `henbane-h2`, that runs the ordinary config and engine but terminates TLS and captures both the HTTP/2 **and** TLS fingerprints. It needs `tls.cert`/`tls.key` set, since direct TLS termination is required to read the client's h2 frames:
+
+```bash
+henbane-h2 --config henbane.yaml   # same YAML; adds h2 fingerprinting
+```
+
 With it wired, a request wearing a browser `User-Agent` whose h2 fingerprint no browser would produce adds to its score:
 
 - Go's `a,m,p,s` pseudo-header order (no browser leads with `:authority`).

@@ -61,7 +61,7 @@ func (d uaDetector) Inspect(r ports.RequestView) (ports.Result, bool) {
 type tlsfpDetector struct{ set map[string]struct{} }
 
 // NewTLSFP returns a Detector that blocks clients whose TLS fingerprint (see
-// internal/tlsfp) matches any of fps. It only fires when Henbane terminates TLS
+// tlsfp) matches any of fps. It only fires when Henbane terminates TLS
 // itself — otherwise the fingerprint is empty. A coarse TLS fingerprint is shared
 // by every client using the same TLS stack, so list only fingerprints confirmed
 // to be automated clients, exactly as with the IP and user-agent denylists.
