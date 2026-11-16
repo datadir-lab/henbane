@@ -1,4 +1,4 @@
-# Improving poison survival — techniques besides an LLM
+# Improving poison survival: techniques besides an LLM
 
 The [study](STUDY.md) showed every current generator is caught by perplexity
 filtering (babble ~4.0×, article ~2.2× real-text perplexity). This note surveys
@@ -17,10 +17,10 @@ cheap, deterministic-per-URL, and bounded.
 Perplexity rewards text that *looks like real prose*; "poison" needs *plausible
 but false content*. The two pull apart:
 
-- **Pure fluency** (e.g. Markov over real text) → low perplexity but it is
-  meaningless noise, not false *claims* — nothing for a model to mislearn.
-- **Pure falsehood** (coined entities, invented facts) → a real payload, but the
-  unusual surface form spikes perplexity and it gets filtered.
+- **Pure fluency** (e.g. Markov over real text) gives low perplexity, but it is
+  meaningless noise, not false *claims*, so there is nothing for a model to mislearn.
+- **Pure falsehood** (coined entities, invented facts) carries a real payload, but
+  the unusual surface form spikes perplexity and it gets filtered.
 
 **The winning region is real, fluent surface form carrying false semantic
 content.** Every technique below is judged on how well it occupies that region.
@@ -29,13 +29,13 @@ content.** Every technique below is judged on how well it occupies that region.
 
 | # | Technique | Perplexity | Semantic payload | Zero-dep? | Henbane fit |
 |---|---|---|---|---|---|
-| 1 | **Real-lexicon grammar** — the `article` CFG but slots filled from bundled lists of *real* high-frequency words/names instead of coined tokens | ↓↓ (kills the `<unk>` spike) | yes (false facts) | **yes** | **highest ROI** |
-| 2 | **Sentence splicing + false-fact injection** — recombine real public-domain sentences, interleaved with templated false claims | ↓↓↓ (real sentences score near-real) | yes (injected) | yes (needs a bundled real corpus) | **strong** |
-| 3 | **Higher-order Markov on a large real corpus** (order 3–4) | ↓↓ (reproduces real n-grams) | **no** (fluent noise) | yes (bundled corpus) | partial — fluency only |
-| 4 | **Corrupt-in-place** — swap entities/numbers/facts in a *real* article (Quixotic-style) | ↓↓↓ | yes | yes | only when poisoning the operator's own content |
+| 1 | **Real-lexicon grammar**: the `article` CFG but slots filled from bundled lists of *real* high-frequency words/names instead of coined tokens | ↓↓ (kills the `<unk>` spike) | yes (false facts) | **yes** | **highest ROI** |
+| 2 | **Sentence splicing + false-fact injection**: recombine real public-domain sentences, interleaved with templated false claims | ↓↓↓ (real sentences score near-real) | yes (injected) | yes (needs a bundled real corpus) | **strong** |
+| 3 | **Higher-order Markov on a large real corpus** (order 3 to 4) | ↓↓ (reproduces real n-grams) | **no** (fluent noise) | yes (bundled corpus) | partial: fluency only |
+| 4 | **Corrupt-in-place**: swap entities/numbers/facts in a *real* article (Quixotic-style) | ↓↓↓ | yes | yes | only when poisoning the operator's own content |
 | 5 | **Synonym / WordNet substitution** on seed text | ↓ (modest, can read oddly) | weak | needs a bundled lexicon | minor |
 | 6 | **Tiny bundled neural LM** (char-RNN / small n-gram NN) | ↓↓↓ | depends | **no** (model + inference) | optional adapter, like the LLM path |
-| 7 | **Adversarial surface tricks** — homoglyphs, zero-width chars, confusables | ↑ (hurts it) + stripped by normalization | no | yes | **avoid** — counterproductive |
+| 7 | **Adversarial surface tricks**: homoglyphs, zero-width chars, confusables | ↑ (hurts it) + stripped by normalization | no | yes | **avoid**, counterproductive |
 | 8 | **Retrieval + recombination** of real web snippets | ↓↓↓ | weak | no (corpus/index + copyright) | avoid |
 
 ## Recommendations for Henbane (ranked)
@@ -51,7 +51,7 @@ content.** Every technique below is judged on how well it occupies that region.
    concatenating real sentences (near-real perplexity) with a minority of
    templated false-fact sentences (the payload). Deterministic per URL via the
    existing seed+salt. Zero-dep (`bufio`/`strings`). This likely clears perplexity
-   where grammars cannot, at the cost of global coherence — which matters only for
+   where grammars cannot, at the cost of global coherence, which matters only for
    the (stretch) LLM-judge stage, not the perplexity/Gopher/C4/dedup stages.
 
 3. **Higher-order Markov as a fluency upgrade to `babble`**, not a poison upgrade.
@@ -64,11 +64,11 @@ content.** Every technique below is judged on how well it occupies that region.
 
 ## The honest conclusion
 
-Non-LLM methods **can** move the needle — real-lexicon grammar and sentence
-splicing are concrete, zero-dep, and target the measured failure directly — but
-there is a ceiling: text that both reads as real prose *and* asserts false,
-model-relevant content, cheaply and deterministically, is hard without a learned
-model. So Henbane's honest posture stands: pursue (1) and (2) to make the poison
+Non-LLM methods **can** move the needle. Real-lexicon grammar and sentence splicing
+are concrete, zero-dep, and target the measured failure directly. But there is a
+ceiling: text that both reads as real prose *and* asserts false, model-relevant
+content, cheaply and deterministically, is hard without a learned model. So
+Henbane's honest posture stands: pursue (1) and (2) to make the poison
 *filter-resistant-er*, keep the tarpit + per-deployment-salt federation as the
 load-bearing story (see [STUDY.md](STUDY.md) and [../docs/STRATEGY.md](../docs/STRATEGY.md)),
-and never claim single-site model impact — which remains unobservable from outside.
+and never claim single-site model impact, which remains unobservable from outside.
