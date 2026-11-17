@@ -48,6 +48,21 @@ func TestChildHrefsUnderParent(t *testing.T) {
 	}
 }
 
+func TestLongPathDoesNotAmplifyOutput(t *testing.T) {
+	// The path is echoed into every link, so an uncapped path would let a single
+	// large-URL request draw a response many times its size (egress amplification). The
+	// cap keeps the output bounded regardless of URL length.
+	g := New(100, stubPoisoner{}, 0) // max links: worst case for href amplification
+	page := render(t, g, "/"+strings.Repeat("a", 100_000))
+	if len(page) > 60_000 {
+		t.Errorf("maze output = %d bytes for a 100 KB path; want bounded, not proportional to the URL", len(page))
+	}
+	// No single link echoes more than the capped prefix of the path.
+	if strings.Contains(page, strings.Repeat("a", maxPathBytes+1)) {
+		t.Errorf("a link echoed more than maxPathBytes (%d) of the attacker path", maxPathBytes)
+	}
+}
+
 func TestPathIsEscaped(t *testing.T) {
 	// The request path is the only attacker-controlled value reflected into the
 	// page (via the href attribute). html/template must escape it so a crafted
