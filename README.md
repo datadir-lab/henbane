@@ -352,6 +352,15 @@ Short version: it reliably wastes crawler resources. It does **not**, and cannot
 
 What is honestly measurable is the resource cost you impose: bytes served, crawl depth, dwell time, bot-versus-real ratio (see [Effectiveness](#effectiveness) for the measured figures). The opt-in [`henbane canary probe`](#provable-poison-canaries) also measures whether planted `canary` phrases surface in a live AI-search endpoint you point it at, which is live retrieval reach, not poisoned training. Henbane is worth running for the resource-cost story alone.
 
+**The evidence behind the claims above.** The points are not hand-waving; here is the literature, including the results people most often misquote in this debate, and why each one stops short of "a single site poisons a frontier model":
+
+- Carlini et al., *Poisoning Web-Scale Training Datasets Is Practical* (IEEE S&P 2024, arXiv:2302.10149). Shows web poisoning is feasible, but through **guaranteed-insertion** vectors (buying expired dataset domains, Wikipedia-snapshot frontrunning), not "serve pages and hope a crawler keeps them."
+- Zhang et al., *Persistent Pre-training Poisoning of LLMs* (ICLR 2025, arXiv:2410.13722). Finds 0.1% of pre-training data can make an effect persist through post-training, but with **controlled insertion** and a **targeted** objective, measured white-box on models the authors trained.
+- Anthropic, UK AI Security Institute, and the Alan Turing Institute, *Poisoning Attacks on LLMs Require a Near-Constant Number of Poison Samples* (2025, arXiv:2510.07192). The "~250 documents" result: near-constant across 600M to 13B models, but a **narrow denial-of-service backdoor** keyed to a chosen trigger (`<SUDO>`), with guaranteed insertion. The authors themselves call it "unlikely to pose significant risks in frontier models." It is not evidence that untargeted maze text degrades a model.
+- Shumailov et al., *AI Models Collapse When Trained on Recursively Generated Data* (Nature, 2024). "Model collapse" is a **recursive, multi-generation** phenomenon (a model trained on its own output, repeatedly), not something one poisoned site causes in a single training run.
+
+The through-line: every rigorous poisoning result depends on insertion access, a chosen trigger, or recursion that a single deterrent deployment does not have. Henbane's honest claim is the resource cost and the canary's retrieval reach, nothing more.
+
 ## Acceptable use and content liability
 
 Everything Henbane **ships** is fully fictional: the embedded corpus and the `article` and `canary` grammars invent entities, places, and facts, and contain no real people or organizations. That is a deliberate policy.
