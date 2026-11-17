@@ -158,3 +158,53 @@ func TestPTRFanoutBounded(t *testing.T) {
 		t.Errorf("forward lookups = %d, want <= %d (PTR fan-out must be bounded)", cr.hostCalls, maxPTRNames)
 	}
 }
+
+// timeoutResolver returns a transient (non-IsNotFound) DNS error, modelling a
+// resolver outage or timeout rather than a definitive "no such record".
+type timeoutResolver struct{}
+
+func (timeoutResolver) LookupAddr(context.Context, string) ([]string, error) {
+	return nil, &net.DNSError{IsTimeout: true}
+}
+func (timeoutResolver) LookupHost(context.Context, string) ([]string, error) {
+	return nil, &net.DNSError{IsTimeout: true}
+}
+
+// TestFcrdnsTransientVsStable pins the fail-safe distinction the verifier depends on:
+// a stable NXDOMAIN is a definitive non-confirmation (ok=true, cacheable), but a
+// transient resolver error must report ok=false so the result is NOT cached and the
+// next request retries, rather than a DNS blip freezing a client's verification state.
+func TestFcrdnsTransientVsStable(t *testing.T) {
+	ip := netip.MustParseAddr("66.249.66.1")
+	// fakeResolver{} returns IsNotFound on every miss: a stable non-confirmation.
+	if host, ok := newV(fakeResolver{}, true).fcrdns(context.Background(), ip); host != "" || !ok {
+		t.Errorf("stable NXDOMAIN: want (\"\", true) cacheable non-confirmation, got (%q, %v)", host, ok)
+	}
+	if host, ok := newV(timeoutResolver{}, true).fcrdns(context.Background(), ip); host != "" || ok {
+		t.Errorf("transient timeout: want (\"\", false) so it is not cached, got (%q, %v)", host, ok)
+	}
+}
+
+// TestTransientErrorNotCachedAndNeverAllowlists is the end-to-end fail-safe invariant:
+// during a resolver outage a Googlebot-claiming client is never allowlisted, the
+// failure is not cached, and once the resolver recovers the same client verifies.
+func TestTransientErrorNotCachedAndNeverAllowlists(t *testing.T) {
+	ip := netip.MustParseAddr("66.249.66.1")
+	v := newV(timeoutResolver{}, true)
+	v.resolve(ip) // resolve under the outage
+	v.mu.Lock()
+	_, cached := v.cache[ip]
+	v.mu.Unlock()
+	if cached {
+		t.Error("a transient resolver error must not be cached, so verification retries")
+	}
+	// The resolver recovers: swap in a working one and re-resolve. A real Googlebot now verifies.
+	v.res = fakeResolver{
+		ptr:  map[string][]string{"66.249.66.1": {"crawl-66-249-66-1.googlebot.com."}},
+		host: map[string][]string{"crawl-66-249-66-1.googlebot.com": {"66.249.66.1"}},
+	}
+	v.resolve(ip)
+	if _, tier, ok := v.Verify(view{ip: ip, ua: googlebotUA}); !ok || tier != ports.TierPass {
+		t.Fatalf("after the resolver recovers a real Googlebot must verify; got tier=%v ok=%v", tier, ok)
+	}
+}
