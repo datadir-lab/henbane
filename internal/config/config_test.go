@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -68,6 +69,43 @@ func TestLoadFileMalformedYAML(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg, Config{}) {
 		t.Errorf("on error cfg = %+v, want zero Config{} (no partial state)", cfg)
+	}
+}
+
+func TestLoadFileRejectsUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "typo.yaml")
+	// A typo in a security-relevant key: "enabld" instead of "enabled". Lenient
+	// parsing would silently leave the honeypot disabled (fail open); strict parsing
+	// must reject it at load time so the operator sees the mistake.
+	body := "upstream: \"http://a:1\"\nhoneypot:\n  enabld: true\n  path: \"/trap\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFile(path)
+	if err == nil {
+		t.Fatal("expected an error for an unknown config key, got nil (fails open)")
+	}
+	if !strings.Contains(err.Error(), "enabld") {
+		t.Errorf("error should name the offending key; got %v", err)
+	}
+	if !reflect.DeepEqual(cfg, Config{}) {
+		t.Errorf("on error cfg = %+v, want zero Config{} (no partial state)", cfg)
+	}
+}
+
+func TestLoadFileEmptyKeepsDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.yaml")
+	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("an empty config file is valid (passive defaults), got error: %v", err)
+	}
+	if !reflect.DeepEqual(cfg, Default()) {
+		t.Errorf("empty file should yield the defaults; got %+v", cfg)
 	}
 }
 

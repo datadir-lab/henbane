@@ -153,7 +153,7 @@ Full copy-pasteable configs for both, including routing the proof-of-work verify
 
 ## Configuration
 
-Zero-config works: a single `--upstream` passes all traffic through. For anything more, point `--config` at a YAML file. Every key below is one Henbane reads today.
+Zero-config works: a single `--upstream` passes all traffic through. For anything more, point `--config` at a YAML file. Every key below is one Henbane reads today; an unrecognised key is a startup error, not a silent no-op, so a typo in a security-relevant setting (say `enabld` for `enabled`) fails loud instead of quietly disabling the protection.
 
 ```yaml
 # henbane.yaml

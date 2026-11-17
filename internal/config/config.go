@@ -3,8 +3,11 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/netip"
 	"os"
 	"strings"
@@ -309,7 +312,18 @@ func LoadFile(path string) (Config, error) {
 		return Config{}, fmt.Errorf("read config: %w", err)
 	}
 	loaded := Default()
-	if err := yaml.Unmarshal(data, &loaded); err != nil {
+	// Strict decoding: an unknown key is a hard error, not a silent no-op. A typo in a
+	// security-relevant key (honeypot.enabled, deny.user_agents) would otherwise disable
+	// that protection without a word, failing open; failing closed at startup is the
+	// safer default for a zero-trust gateway. The trade-off is that a config carrying a
+	// key this binary does not know is rejected rather than ignored, which is intended:
+	// upgrade the binary, do not let an unrecognised key pass silently.
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&loaded); err != nil {
+		if errors.Is(err, io.EOF) {
+			return loaded, nil // empty file: keep the passive defaults
+		}
 		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
 	return loaded, nil
