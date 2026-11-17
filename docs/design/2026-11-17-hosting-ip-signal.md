@@ -36,18 +36,21 @@ The signal is weak and compounding by design:
 The bundled ranges come from the cloud providers' **own** published feeds, never a
 third-party aggregator:
 
-- AWS: `https://ip-ranges.amazonaws.com/ip-ranges.json`
-- GCP: `https://www.gstatic.com/ipranges/cloud.json`
+- AWS: `https://ip-ranges.amazonaws.com/ip-ranges.json` (JSON)
+- GCP: `https://www.gstatic.com/ipranges/cloud.json` (JSON)
+- DigitalOcean: `https://www.digitalocean.com/geo/google.csv` (CSV)
+- Linode: `https://geoip.linode.com/` (CSV)
 
-The `gen` tool (run with `go generate ./internal/detect/hostingip/...`) fetches both,
-deduplicates, drops any prefix contained in another, and sorts the result, leaving a
-non-overlapping, sorted set per address family. The snapshot in `data_gen.go` is 6,381
-IPv4 and 3,166 IPv6 prefixes. A non-overlapping sorted set means membership is a binary
+The `gen` tool (run with `go generate ./internal/detect/hostingip/...`) fetches all of
+them, deduplicates, drops any prefix contained in another, and sorts the result, leaving
+a non-overlapping, sorted set per address family. The snapshot in `data_gen.go` is 12,875
+IPv4 and 3,411 IPv6 prefixes. A non-overlapping sorted set means membership is a binary
 search (the only possible container of an address is the rightmost prefix whose network
 address is <= it), so the per-request cost is about a dozen comparisons regardless of
-the set size, with no third-party dependency. AWS and GCP cover a large share of
-cloud-hosted scraping; Azure (a weekly-rotating feed) and ASN-based hosters are a natural
-later addition to the same `gen` tool.
+the set size, with no third-party dependency. These four cover a large share of
+cloud-hosted scraping; Oracle OCI, Azure (a weekly-rotating feed), and ASN-based hosters
+are a natural later addition to the same `gen` tool when a stable first-party fetch
+exists.
 
 ## Honest limitations
 
