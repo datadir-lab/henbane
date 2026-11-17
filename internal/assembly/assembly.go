@@ -26,6 +26,7 @@ import (
 	"github.com/datadir-lab/henbane/internal/detect/denylist"
 	"github.com/datadir-lab/henbane/internal/detect/goodbot"
 	"github.com/datadir-lab/henbane/internal/detect/honeypot"
+	"github.com/datadir-lab/henbane/internal/detect/hostingip"
 	"github.com/datadir-lab/henbane/internal/detect/remotedeny"
 	"github.com/datadir-lab/henbane/internal/detect/velocity"
 	"github.com/datadir-lab/henbane/internal/detect/webbotauth"
@@ -204,7 +205,11 @@ func Build(cfg config.Config, extra ...ports.Detector) (Components, error) {
 		if confirmAt == 0 {
 			confirmAt = 4
 		}
-		engine.WithScoring(suspectAt, confirmAt, consistency.New(consistency.DefaultWeights()))
+		scorers := []ports.Scorer{consistency.New(consistency.DefaultWeights())}
+		if cfg.HostingIP.Enabled {
+			scorers = append(scorers, hostingip.NewDefault(cfg.HostingIP.Weight))
+		}
+		engine.WithScoring(suspectAt, confirmAt, scorers...)
 	}
 	return Components{
 		Engine:   engine,

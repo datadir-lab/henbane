@@ -150,6 +150,16 @@ type Scoring struct {
 	ConfirmAt int  `yaml:"confirm_threshold"` // 0 => default 4
 }
 
+// HostingIP configures the cloud/hosting-IP soft signal: a browser-claiming client
+// arriving from a published cloud provider range (AWS, GCP) is more likely automated.
+// It is a weak, compounding scorer signal, applied only when Scoring is also enabled.
+// Off by default: a thin legitimate population (corporate web gateways, cloud VPNs)
+// browses from these ranges, so enable it where that population is small.
+type HostingIP struct {
+	Enabled bool `yaml:"enabled"`
+	Weight  int  `yaml:"weight"` // points added on a match; 0 => default 1
+}
+
 // WebBotAuth configures verification of Web Bot Auth signed agents (RFC 9421 /
 // draft-meunier-web-bot-auth). When enabled, a request carrying a valid Ed25519
 // signature from a key in one of the configured agent Directories is classified
@@ -210,6 +220,7 @@ type Config struct {
 	AICrawlers     AICrawlers   `yaml:"verified_ai_crawlers"`
 	Sidecar        Sidecar      `yaml:"sidecar"`
 	Scoring        Scoring      `yaml:"scoring"`
+	HostingIP      HostingIP    `yaml:"hosting_ip"`
 }
 
 // FederationRefresh parses Federation.Refresh, defaulting to 1h; must be positive.
@@ -537,6 +548,14 @@ func Validate(cfg Config) error {
 		if cfg.PoW.Mode != "suspect" && cfg.PoW.Mode != "all" {
 			return fmt.Errorf("scoring requires pow.mode suspect or all (a scored-Suspect client is challenged)")
 		}
+	}
+	if cfg.HostingIP.Weight < 0 {
+		return fmt.Errorf("hosting_ip.weight must be non-negative")
+	}
+	// The hosting-IP signal is a scorer, so it does nothing without scoring. Fail loud
+	// rather than let the operator believe they enabled a protection that is inert.
+	if cfg.HostingIP.Enabled && !cfg.Scoring.Enabled {
+		return fmt.Errorf("hosting_ip.enabled requires scoring.enabled (it is a scoring signal)")
 	}
 	return nil
 }
