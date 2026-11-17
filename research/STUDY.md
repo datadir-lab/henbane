@@ -50,7 +50,7 @@ Perplexity cutoff (calibrated): **618**.
 
 ## Honest caveats
 
-- **Perplexity is a trigram approximation** (option b) trained on held-out public-domain prose; a real KenLM/Wikipedia model would sharpen the absolute numbers, not the direction.
+- **Perplexity is a trigram approximation** (option b) trained on held-out public-domain prose; the production filter it stands in for is CCNet's 5-gram KenLM trained on Wikipedia (Wenzek et al. 2020). A real KenLM would sharpen the absolute numbers, not the direction: the order sweep above shows the corpus match, not the model order, is what decides survival. Training one at that scale needs a Wikipedia-sized corpus, so it is left as a documented limitation.
 - **These filters do not check discourse coherence.** `splice_ref`'s sentences are real but their *order* is scrambled; the Gopher/C4/perplexity/dedup gauntlet scores fluency and duplication, not whether a paragraph makes sense. A semantic-coherence filter or an LLM judge could still catch it, so treat splice as *beats the CCNet-style gauntlet*, not *undetectable*.
 - **Policy / liability.** Henbane ships only the fictional embedded corpus, which (as shown) does not survive. Pointing `splice` at a real, distribution-matched corpus is the operator's choice and liability, the same boundary as `babble`'s `corpus_path`.
 
@@ -92,6 +92,16 @@ Simulating **25 Henbane deployments** (20 docs each), pooled and run through cro
 - **With Henbane's per-deployment salt, it accumulates.** Each site's output is distinct, so the surviving-after-dedup count grows roughly linearly with the number of sites (article: 500 unique docs across 25 sites).
 - **Without a per-site salt, it collapses.** Identical sites dedup down to one site's worth (flat dashed line, ~20 docs no matter how many sites). This is *why* the generators mix a per-deployment salt into their seed.
 - **Honest caveat.** Poison from the *generators* is filtered by perplexity (above), so their cross-site volume is symbolic. The federation benefit that is **real today for every strategy** is cumulative *tarpit cost*: each site independently burns the crawler's bandwidth and compute, scaling linearly with sites, and no dedup can collapse wasted fetch work. And for the one strategy that clears the gauntlet (matched-corpus splice), this salted accumulation is exactly the mechanism by which many sites' *surviving* poison adds up instead of collapsing.
+
+## References
+
+Each filter stage is modelled on a published pipeline:
+
+- **C4 rules**: Raffel et al. 2020, *Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer* (JMLR). arXiv:1910.10683.
+- **Gopher quality heuristics**: Rae et al. 2021, *Scaling Language Models: Methods, Analysis & Insights from Training Gopher*. arXiv:2112.11446.
+- **Perplexity filter**: Wenzek et al. 2020, *CCNet: Extracting High Quality Monolingual Datasets from Web Crawl Data* (LREC). arXiv:1911.00359. The production filter scores a document by the perplexity of a 5-gram KenLM trained on Wikipedia; this study uses a word-trigram stand-in (see Honest caveats).
+- **Near-duplicate dedup**: Broder 1997, *On the resemblance and containment of documents* (SEQUENCES), the MinHash construction.
+- Modern pipelines that stack these stages: **Dolma** (Soldaini et al. 2024) and **FineWeb** (Penedo et al. 2024).
 
 ---
 

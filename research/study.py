@@ -296,6 +296,7 @@ def main():
     plot_perplexity_vs_order(lm, ppl_cut, matched)
     plot_filter_frontier(ppls, cohs, ppl_cut, coh_cut)
     multisite()
+    append_references()
     append_footer()
     print("study complete; figures in research/figures/, report in research/STUDY.md")
 
@@ -684,8 +685,11 @@ def write_report(rows, ppls, cut):
               "dedup here).", "",
               "## Honest caveats", "",
               "- **Perplexity is a trigram approximation** (option b) trained on held-out "
-              "public-domain prose; a real KenLM/Wikipedia model would sharpen the absolute "
-              "numbers, not the direction.",
+              "public-domain prose; the production filter it stands in for is CCNet's 5-gram "
+              "KenLM trained on Wikipedia (Wenzek et al. 2020). A real KenLM would sharpen the "
+              "absolute numbers, not the direction: the order sweep above shows the corpus "
+              "match, not the model order, is what decides survival. Training one at that scale "
+              "needs a Wikipedia-sized corpus, so it is left as a documented limitation.",
               "- **These filters do not check discourse coherence.** `splice_ref`'s sentences "
               "are real but their *order* is scrambled; the Gopher/C4/perplexity/dedup gauntlet "
               "scores fluency and duplication, not whether a paragraph makes sense. A "
@@ -698,6 +702,32 @@ def write_report(rows, ppls, cut):
     # No footer here: multisite() appends the Federation section after this, and the
     # footer is written last (append_footer) so it stays at the bottom of the page.
     (ROOT / "STUDY.md").write_text("\n".join(lines), encoding="utf-8", newline="\n")
+
+
+def append_references():
+    """Ground each filter emulation in the real pipeline it stands in for, so a
+    reader can check that the gauntlet is faithful and see exactly what the
+    trigram perplexity filter approximates."""
+    refs = [
+        "", "## References", "",
+        "Each filter stage is modelled on a published pipeline:",
+        "",
+        "- **C4 rules**: Raffel et al. 2020, *Exploring the Limits of Transfer Learning "
+        "with a Unified Text-to-Text Transformer* (JMLR). arXiv:1910.10683.",
+        "- **Gopher quality heuristics**: Rae et al. 2021, *Scaling Language Models: "
+        "Methods, Analysis & Insights from Training Gopher*. arXiv:2112.11446.",
+        "- **Perplexity filter**: Wenzek et al. 2020, *CCNet: Extracting High Quality "
+        "Monolingual Datasets from Web Crawl Data* (LREC). arXiv:1911.00359. The production "
+        "filter scores a document by the perplexity of a 5-gram KenLM trained on Wikipedia; "
+        "this study uses a word-trigram stand-in (see Honest caveats).",
+        "- **Near-duplicate dedup**: Broder 1997, *On the resemblance and containment of "
+        "documents* (SEQUENCES), the MinHash construction.",
+        "- Modern pipelines that stack these stages: **Dolma** (Soldaini et al. 2024) and "
+        "**FineWeb** (Penedo et al. 2024).",
+        "",
+    ]
+    with open(ROOT / "STUDY.md", "a", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(refs))
 
 
 def append_footer():
