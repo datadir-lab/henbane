@@ -240,6 +240,27 @@ curl_cffi do). Forging a browser-grade h2 stack is far more work than copying
 headers, so the signal raises the evasion cost sharply, but it is not a wall. That
 is why it feeds the fusion score (a challenge, then a tarpit), not an outright block.
 
+### 2.8 What the cloud/hosting-IP signal adds (orthogonal to this corpus)
+
+The header corpus above fixes a single client IP, so it cannot measure a
+network-layer signal; the cloud/hosting-IP signal (`hosting_ip`, optional) is
+reported here rather than scored in the table. It adds a compounding point when a
+browser-claiming request originates from a published cloud range (AWS, GCP,
+DigitalOcean, Linode, 12,875 IPv4 + 3,411 IPv6 prefixes from the providers' own
+feeds). A real person browses from a residential or mobile ISP; a scraper fleet runs
+on cloud compute, so a Chrome User-Agent from an EC2 address is itself a mismatch.
+
+Its honest ceiling is the same one §4 names for IP reputation generally:
+**residential proxies defeat it.** Imperva's 2025 data attributes 21% of bot attacks
+to residential proxies used specifically to beat this signal, and a large study found
+78% of residential-IP bot sessions evaded conventional IP feeds. So it tilts the
+cheap, datacenter-hosted case, nothing more: weight 1, below the challenge threshold
+on its own (a legitimate cloud-VPN or corporate-gateway browser is not challenged),
+compounding a browser-claimer that also trips a header or h2 tell toward Confirmed.
+Off by default, and verified good bots are exempt (they are allowlisted before
+scoring runs). It is the cheap network-layer tier the commercial stacks check first,
+built from first-party ranges with no third-party dependency, and honestly scoped.
+
 ---
 
 ## 3. Signal-coverage matrix
@@ -249,7 +270,7 @@ figures are vendor self-reported and not independently audited.
 
 | System | OSS/self-host | Classifier | TLS fp | HTTP/2 fp | Device/JS fp | Behavioural | Good-bot verify | PoW | Tarpit | Poison | Reputation |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **Henbane** | **AGPL/yes** | weighted score+fusion | ~coarse | **~opt** (h2capture) | N | ~velocity | **rDNS+WBA+IP** | Y | **Y** | **Y** | Y |
+| **Henbane** | **AGPL/yes** | weighted score+fusion | ~coarse | **~opt** (h2capture) | N | ~velocity | **rDNS+WBA+IP** | Y | **Y** | **Y** | Y (hosting+feed) |
 | Anubis | MIT/yes | weight score | N | N | N | N | UA+CIDR+rDNS | Y | N | N | opt DNSBL |
 | go-away | MIT/yes | CEL+fp | **JA3N/JA4** | ~ | ~ | N | IP ranges | opt | N | N | DNSBL |
 | Nepenthes | MIT/yes | none | N | N | N | N | N | N | **Y** | **Y** | N |
@@ -277,6 +298,9 @@ No single network-layer signal is a wall:
 - **HTTP/2 fingerprint** flags >95% of *simple* h2 clients but is reproduced by
   impersonation toolkits (ref [7]).
 - **IP reputation / ASN** is defeated by residential proxies (85-99% success).
+  Henbane's own `hosting_ip` signal (§2.8) sits exactly here: a real win against the
+  cheap datacenter-hosted majority, nothing against the residential-proxy adversary,
+  which is why it is a compounding point rather than a block.
 - **Proof-of-work** taxes, it does not classify; a native solver clears thousands
   of Anubis sites for cents, and the cost lands on every low-end human device.
 - **Headless real browsers** defeat header, TLS, and increasingly behavioural
