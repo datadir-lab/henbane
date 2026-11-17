@@ -40,6 +40,11 @@ func New(links int, poisoner ports.Poisoner, paragraphs int) *Generator {
 	return &Generator{links: links, poisoner: poisoner, paras: paragraphs}
 }
 
+// maxPathBytes caps how much of the request path is echoed into each child link, so a
+// large-URL request cannot draw a maze response proportional to the URL times the link
+// count. 256 bytes is well above any realistic crawl path.
+const maxPathBytes = 256
+
 type link struct {
 	Href string
 	Text string
@@ -63,6 +68,15 @@ func (g *Generator) WritePage(w io.Writer, path string) error {
 	seed := seedFor(path)
 	rng := rand.New(rand.NewSource(seed))
 	base := strings.TrimRight(path, "/")
+	// The path is attacker-controlled and is echoed once per link (up to 100), so an
+	// unbounded path would let a single large-URL request to a maze or honeypot path
+	// (the honeypot path is public in robots.txt and tarpits on the first hit) draw a
+	// response many times its size: an egress-amplification vector against the operator.
+	// Cap the echoed prefix; a realistic crawl path is far shorter. The child links stay
+	// bounded on every subsequent hop as a result.
+	if len(base) > maxPathBytes {
+		base = base[:maxPathBytes]
+	}
 	links := make([]link, g.links)
 	for i := range links {
 		seg := pick(rng) + "-" + pick(rng) + "-" + strconv.Itoa(rng.Intn(100000))
