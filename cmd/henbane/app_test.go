@@ -632,6 +632,58 @@ func TestPoWSuspectModeChallengesSpoofedBrowser(t *testing.T) {
 	}
 }
 
+// TestHeadlessUAChallengedEndToEnd pins the automation-UA signal through the whole
+// handler, not just the scorer unit: a client wearing a self-identifying
+// "HeadlessChrome" User-Agent but otherwise-perfect browser headers (so no
+// header-omission signal fires) is escalated to Suspect and challenged, while the same
+// request with a normal Chrome UA passes to the upstream. The signal lives in the
+// consistency scorer, so scoring is enabled here.
+func TestHeadlessUAChallengedEndToEnd(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "upstream body")
+	}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Upstream: upstream.URL, PoW: config.PoW{Mode: "suspect", DifficultyBits: 8}}
+	cfg.Scoring.Enabled = true
+	h, _, err := newHandler(cfg, logger, nil, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	// Full browser headers, so the only thing that can escalate the request is the
+	// automation token in the User-Agent.
+	get := func(ua string) (int, string) {
+		req, _ := http.NewRequest(http.MethodGet, front.URL+"/page", nil)
+		req.Header.Set("User-Agent", ua)
+		req.Header.Set("Sec-Fetch-Site", "none")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode, string(b)
+	}
+
+	const headlessUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/131.0.0.0 Safari/537.36"
+	const chromeUA = "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36"
+
+	// Headless Chrome, perfect headers → challenged by the automation-UA signal alone.
+	if code, body := get(headlessUA); code != http.StatusOK || !strings.Contains(body, "Checking your browser") {
+		t.Errorf("headless Chrome UA: status=%d, want the challenge page (automation-UA signal)", code)
+	}
+	// Same request, normal Chrome UA → passes, proving the UA token is the trigger.
+	if _, body := get(chromeUA); body != "upstream body" {
+		t.Errorf("real Chrome with full headers: body=%q, want upstream body (nothing should fire)", body)
+	}
+}
+
 func TestBombServedToConfirmedCrawlerWithGzip(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "upstream body")
