@@ -584,3 +584,18 @@ func TestParseScoringValidation(t *testing.T) {
 		t.Error("negative threshold must be rejected")
 	}
 }
+
+func TestParseHostingIPValidation(t *testing.T) {
+	// hosting_ip is a scoring signal; enabling it without scoring is inert, so fail loud.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nhosting_ip:\n  enabled: true\n"); err == nil {
+		t.Error("hosting_ip.enabled without scoring must be rejected")
+	}
+	// With scoring and its required PoW gate it is accepted.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\npow:\n  mode: suspect\nscoring:\n  enabled: true\nhosting_ip:\n  enabled: true\n  weight: 2\n"); err != nil {
+		t.Errorf("hosting_ip with scoring+pow should be accepted: %v", err)
+	}
+	// A negative weight is rejected.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nhosting_ip:\n  weight: -1\n"); err == nil {
+		t.Error("negative hosting_ip.weight must be rejected")
+	}
+}

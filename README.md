@@ -491,6 +491,16 @@ scoring:
 
 Each thing a browser-claiming client omits (`Sec-Fetch-Site` metadata, an `Accept` header, a language, a modern `Accept-Encoding`, HTTP/2) adds weighted points. One miss is only worth a brief challenge; several **compound** into a confident `Confirmed`, so a stock HTTP client wearing a Chrome `User-Agent` lands in the labyrinth while a real browser sails through. Every piece of evidence is recorded in the decision log even when it doesn't escalate, so you can see *why* a client was judged. Definitive signals (denylists, honeypot) and verified good bots still win outright; scoring only ever *raises* suspicion, never lowers it.
 
+**Optional cloud/hosting-IP signal.** Real people browse from residential and mobile ISPs; scraper fleets run on cloud compute. Enable `hosting_ip` and a browser-claiming request arriving from a published AWS or GCP range adds a compounding point:
+
+```yaml
+hosting_ip:
+  enabled: true   # requires scoring; off by default
+  weight: 1       # 0 => default 1
+```
+
+It is deliberately weak (one point, so a legitimate cloud-VPN user is not challenged on its own) and off by default, because a thin legitimate population (corporate web gateways, cloud VPNs) browses from these ranges too. It catches the cheap, datacenter-hosted majority; a scraper on a residential proxy evades it, the documented ceiling. Verified good bots are exempt. Refresh the bundled ranges with `go generate ./internal/detect/hostingip/...`. Details in [`docs/design/2026-11-17-hosting-ip-signal.md`](docs/design/2026-11-17-hosting-ip-signal.md).
+
 > **HTTP/2 note.** The "HTTP/2" row above is the zero-dep protocol signal (did the client negotiate HTTP/2 at all?). The far stronger **Akamai h2 frame fingerprint** ships in the optional `h2capture/` module; see [HTTP/2 fingerprinting](#http2-fingerprinting-optional-module).
 
 ## Dependencies
