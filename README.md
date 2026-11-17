@@ -491,7 +491,7 @@ scoring:
 
 Each thing a browser-claiming client omits (`Sec-Fetch-Site` metadata, an `Accept` header, a language, a modern `Accept-Encoding`, HTTP/2) adds weighted points. One miss is only worth a brief challenge; several **compound** into a confident `Confirmed`, so a stock HTTP client wearing a Chrome `User-Agent` lands in the labyrinth while a real browser sails through. Every piece of evidence is recorded in the decision log even when it doesn't escalate, so you can see *why* a client was judged. Definitive signals (denylists, honeypot) and verified good bots still win outright; scoring only ever *raises* suspicion, never lowers it.
 
-**Optional cloud/hosting-IP signal.** Real people browse from residential and mobile ISPs; scraper fleets run on cloud compute. Enable `hosting_ip` and a browser-claiming request arriving from a published AWS or GCP range adds a compounding point:
+**Optional cloud/hosting-IP signal.** Real people browse from residential and mobile ISPs; scraper fleets run on cloud compute. Enable `hosting_ip` and a browser-claiming request arriving from a published cloud-provider range (AWS, GCP, DigitalOcean, Linode) adds a compounding point:
 
 ```yaml
 hosting_ip:
