@@ -480,6 +480,18 @@ With it wired, a request wearing a browser `User-Agent` whose h2 fingerprint no 
 
 This cracks the one case headers cannot: a careful scraper that omits only `Sec-Fetch` is otherwise header-identical to an old browser. Like every scorer signal it only raises suspicion (a challenge, not a block), and it is inert unless capture is wired and Henbane terminates the client's h2 connection directly (empty behind a CDN). Details and the measured fingerprint dataset are in [`docs/design/2026-11-16-h2-fingerprint.md`](docs/design/2026-11-16-h2-fingerprint.md).
 
+## Device fingerprinting (optional, opt-in surveillance build)
+
+The core **deliberately does not fingerprint real visitors**: a tool built to frustrate surveillance of readers should not surveil them to catch bots. But that leaves one adversary the core cannot touch, a real headful browser driven at human pace behind a residential IP, which presents a genuine UA, TLS, and HTTP/2 fingerprint. The only thing that unmasks it is in-client device and behavioural fingerprinting.
+
+For operators who accept that tradeoff, the separate [`jsprobe`](jsprobe/) module and the `henbane-surveil` binary add it, kept out of the core so a core build is provably incapable of it. It challenges a `Suspect` client with a JavaScript probe instead of the proof-of-work puzzle, and issues a pass only to a browser that looks human:
+
+```bash
+henbane-surveil --config henbane.yaml --jsprobe-tier device
+```
+
+Three tiers, each including the ones before: `passive` (automation tells on load, no interaction, nothing user-identifying: `navigator.webdriver`, a software WebGL renderer), `behavioural` (requires human-like input before passing), and `device` (a canvas/WebGL device fingerprint you can denylist). It probes only already-`Suspect` clients (set `pow.mode: suspect`), so an unflagged reader is never fingerprinted. **Be honest about the ceiling:** even fully enabled it does not beat a source-modified browser on a residential IP, and it spends the core's anti-surveillance posture to catch the tier below that. It is off unless you build and run it. See [`docs/design/2026-11-17-jsprobe-surveillance.md`](docs/design/2026-11-17-jsprobe-surveillance.md).
+
 ## Scoring (signal fusion)
 
 Most of the signals above are strong on their own, but the tell-tale of a modern scraper is *inconsistency*: a request that claims to be Chrome yet doesn't behave like Chrome. Spoofing a `User-Agent` is one line of code; reproducing a real browser's whole request shape is not. Enable `scoring` and Henbane stops treating signals as independent tripwires and starts **accumulating** them:

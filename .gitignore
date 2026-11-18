@@ -3,6 +3,10 @@
 /emit.exe
 /h2capture/henbane-h2
 /h2capture/henbane-h2.exe
+/jsprobe/henbane-surveil
+/jsprobe/henbane-surveil.exe
+/jsprobe/cmd/henbane-surveil/henbane-surveil
+/jsprobe/cmd/henbane-surveil/henbane-surveil.exe
 *.out
 /dist/
 .idea/

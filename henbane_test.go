@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,58 @@ import (
 
 	"github.com/datadir-lab/henbane"
 )
+
+type fakeChallenger struct{ served, verified int }
+
+func (f *fakeChallenger) HasValidToken(*http.Request, netip.Addr) bool { return false }
+func (f *fakeChallenger) ServeChallenge(w http.ResponseWriter, _ *http.Request, _ netip.Addr) {
+	f.served++
+	w.WriteHeader(http.StatusTeapot)
+	_, _ = io.WriteString(w, "fake-challenge")
+}
+func (f *fakeChallenger) Verify(w http.ResponseWriter, _ *http.Request, _ netip.Addr) {
+	f.verified++
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func TestWithChallengerReplacesPoW(t *testing.T) {
+	cfg := henbane.Config{}
+	cfg.PoW.Mode = "suspect"
+	cfg.Scoring.Enabled = true
+	fc := &fakeChallenger{}
+	hb, err := henbane.New(cfg, henbane.WithChallenger(fc, "/__hbverify"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	srv := httptest.NewServer(hb.Handler(appHandler()))
+	defer srv.Close()
+
+	// A Chrome UA missing only Sec-Fetch scores to Suspect, which the custom challenger handles.
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/x", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36")
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Accept-Language", "en-US")
+	req.Header.Set("Accept-Encoding", "gzip, br")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if fc.served == 0 || !strings.Contains(string(b), "fake-challenge") {
+		t.Errorf("Suspect client not routed to the custom challenger (served=%d, body=%q)", fc.served, string(b))
+	}
+
+	// The verify path routes to the challenger's Verify.
+	vr, err := http.Post(srv.URL+"/__hbverify", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vr.Body.Close()
+	if fc.verified == 0 {
+		t.Error("verify path not routed to the custom challenger")
+	}
+}
 
 func TestFederationIsPassiveUntilStart(t *testing.T) {
 	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

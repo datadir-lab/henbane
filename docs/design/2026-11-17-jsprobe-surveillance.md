@@ -1,8 +1,9 @@
 # jsprobe: an opt-in device/behavioural fingerprinting module
 
-**Status:** design, not yet built. This is a deliberately-gated proposal because it
-crosses a line the core refuses, and should not be implemented until the design is
-agreed.
+**Status:** shipped. Built as designed after explicit sign-off (all three tiers,
+selectable with `--jsprobe-tier`), as the separate `jsprobe` module and the
+`henbane-surveil` binary. It crosses a line the core refuses, which is why it is a
+separate, opt-in build; the design below is what was implemented.
 
 ## The ethos problem, stated first
 
@@ -93,8 +94,21 @@ minimalism and keeps the surveillance auditable.
 
 - The core stays provably surveillance-free; this never merges into it.
 - No third-party anti-bot SDK; the whole point is a self-hosted, auditable alternative.
-- Behavioural and device tiers are phases, not part of the MVP. The MVP is the passive
-  automation tells, which are the least invasive and catch the most per unit of risk.
+- All three tiers are built and selected with `--jsprobe-tier passive|behavioural|device`,
+  each including the ones before it. The default is `passive`, the least invasive tier.
+  Probe scope follows `pow.mode`: `suspect` probes only flagged clients (the default and
+  the designed-for case), `all` probes everyone.
+
+## As built
+
+The core gained a single `henbane.WithChallenger(c, verifyPath)` seam (an exported
+`Challenger` interface alias) so an embedder can replace the built-in proof-of-work
+challenge; the core ships no challenger of this kind itself. `henbane-surveil` passes the
+`jsprobe.Gate` into it. The Gate implements the challenger: it serves the probe
+interstitial, and its verify endpoint issues an IP-bound, time-limited HMAC pass cookie
+only when the probe report looks human, refusing (403) a client reporting
+`navigator.webdriver`, a software WebGL renderer, no human-like input (behavioural tier),
+or a denylisted device fingerprint (device tier). Verified live end to end.
 
 ## References
 
