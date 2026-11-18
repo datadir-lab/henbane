@@ -8,9 +8,15 @@
 // the classifier never flagged is never fingerprinted. A client whose browser looks
 // automated (the probe reports navigator.webdriver, a software WebGL renderer, no
 // human-like input, or a denylisted device fingerprint) is not issued a pass token and
-// stays at the interstitial; a client that looks human passes through. See the design
-// doc for the honest ceiling: this does not beat a source-modified browser on a
-// residential IP.
+// stays at the interstitial; a client that looks human passes through.
+//
+// Honest ceiling: the probe signals are CLIENT-REPORTED, so unlike the server-observed
+// TLS and HTTP/2 fingerprints they are forgeable. A determined bot that skips the browser
+// and POSTs a clean report (even an empty one) to the verify endpoint passes. The probe
+// therefore catches automation that honestly runs it, default and lightly-stealthed
+// headless browsers that expose webdriver or a software renderer, not a client that
+// chooses to lie. It raises the cost for the middle tier; it is not a wall, and it spends
+// the core's anti-surveillance posture to get there.
 //
 // It imports only the standard library.
 package jsprobe
