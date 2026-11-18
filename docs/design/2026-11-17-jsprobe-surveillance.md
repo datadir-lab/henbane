@@ -76,13 +76,24 @@ flagged.)
 
 ## Honest ceiling
 
-Even fully built, this does not win. The current research adversary, a source-modified
-browser fingerprint behind a residential IP (`CloakBrowser` in the 2026 benchmarks),
-presents a clean device fingerprint and human-like behaviour and is not reliably
-separable. The module raises the cost and catches the large middle tier of automation
-that the core cannot; it does not catch the top tier, and it spends the core's
-anti-surveillance posture to do it. That tradeoff is the operator's to make, which is
-exactly why it is a separate, opt-in build.
+Even fully built, this does not win, and the reason is sharper than "a sophisticated
+adversary evades it." The probe signals are **client-reported**: the browser computes
+them and POSTs them, so unlike the TLS and HTTP/2 fingerprints, which the server observes
+from the actual handshake and connection and the client cannot easily fake, these are
+whatever the client says they are. A determined bot does not even need a browser: it can
+POST a clean report (an empty `{}` passes the passive tier; `{"humanInput":true,...}`
+passes the behavioural one) to the verify endpoint and get a pass token. The device
+fingerprint tier is denylist-only for the same reason: a forger reports a fresh hash each
+time.
+
+So the module catches automation that **honestly runs the probe**, the large population
+of default and lightly-stealthed headless browsers that expose `navigator.webdriver` or a
+software renderer, and it raises the cost for that middle tier. It does not catch a client
+that chooses to lie, which includes both the `CloakBrowser`-class modified browser and a
+plain scripted client that forges the report. It spends the core's anti-surveillance
+posture to get the middle tier; that tradeoff is the operator's to make, which is exactly
+why it is a separate, opt-in build. If the signals could be made server-observable they
+would be worth far more, but by construction a browser probe cannot be.
 
 ## Dependencies
 
