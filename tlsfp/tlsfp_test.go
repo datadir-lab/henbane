@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -103,8 +104,11 @@ func TestCaptureEndToEnd(t *testing.T) {
 
 	select {
 	case fp := <-got:
-		if len(fp) != 16 {
-			t.Errorf("captured fingerprint = %q, want 16 hex chars", fp)
+		// A live handshake must yield a well-formed JA4: t<9-char a>_<12 hex>_<12 hex>.
+		parts := strings.Split(fp, "_")
+		if len(parts) != 3 || len(parts[0]) != 10 || parts[0][0] != 't' ||
+			len(parts[1]) != 12 || len(parts[2]) != 12 {
+			t.Errorf("captured fingerprint = %q, want a JA4 string (t<a>_<12hex>_<12hex>)", fp)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("handler never ran")
