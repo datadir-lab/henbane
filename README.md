@@ -46,7 +46,7 @@ With `robots.serve` on, Henbane publishes a `/robots.txt` that `Disallow`s the h
 
 Two optional suspicion signals feed the `Suspect` tier:
 
-- **Proof-of-work** (`pow.mode: suspect`, or `all` for everyone). The browser solves a small puzzle once, is remembered by an anonymous session cookie, and passes through. A crawler reading a million pages pays it a million times. Off by default.
+- **Proof-of-work** (`pow.mode: suspect`, or `all` for everyone). A challenged browser solves a small SHA-256 puzzle once, gets an anonymous IP-bound session token, and passes through until it expires. Off by default. Be clear-eyed: this is a speed-bump against low-effort scrapers, not a wall. A determined crawler solves it once per IP with a native solver (far faster than browser JavaScript) and then crawls freely for the token's lifetime, so the real deterrent is the labyrinth and poison a confirmed crawler gets, not the puzzle. Because only `Suspect` traffic is challenged, the puzzle never taxes an ordinary reader. See [proof-of-work honest limits](docs/design/2026-11-17-pow-honest-limits.md).
 - **Request velocity** (`velocity.enabled`). Any client IP that exceeds `velocity.requests` within `velocity.window` is classified at `velocity.tier`. This is a weaker signal than a trap hit (shared NAT, CDNs, and asset-heavy pages all inflate a single IP's rate), so `tier: suspect` makes a fast client pay the recoverable PoW toll while `tier: confirmed` trips it into the tarpit. The counter sees every request including subresources, so set `requests` above a heavy human session or keep static assets off the proxied path. Off by default.
 
 ## Quick start
