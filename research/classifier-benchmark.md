@@ -270,7 +270,7 @@ figures are vendor self-reported and not independently audited.
 
 | System | OSS/self-host | Classifier | TLS fp | HTTP/2 fp | Device/JS fp | Behavioural | Good-bot verify | PoW | Tarpit | Poison | Reputation |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **Henbane** | **AGPL/yes** | weighted score+fusion | ~coarse | **~opt** (h2capture) | N | ~velocity | **rDNS+WBA+IP** | Y | **Y** | **Y** | Y (hosting+feed) |
+| **Henbane** | **AGPL/yes** | weighted score+fusion | **JA4** | **~opt** (h2capture) | N | ~velocity | **rDNS+WBA+IP** | Y | **Y** | **Y** | Y (hosting+feed) |
 | Anubis | MIT/yes | weight score | N | N | N | N | UA+CIDR+rDNS | Y | N | N | opt DNSBL |
 | go-away | MIT/yes | CEL+fp | **JA3N/JA4** | ~ | ~ | N | IP ranges | opt | N | N | DNSBL |
 | Nepenthes | MIT/yes | none | N | N | N | N | N | N | **Y** | **Y** | N |

@@ -176,7 +176,7 @@ deny:
     - "GPTBot"
     - "CCBot"
     - "ClaudeBot"
-  tls_fingerprints:       # coarse TLS fingerprints (see logs; requires tls.cert/key)
+  tls_fingerprints:       # JA4 TLS fingerprints (see logs; requires tls.cert/key)
     - "de7fd8549b99c53c"
 
 honeypot:
@@ -444,12 +444,11 @@ Set `webbotauth.enabled`, list the agent key `directories` you recognise, and He
 
 ## TLS fingerprinting
 
-When Henbane terminates TLS itself (set `tls.cert`/`tls.key`), it fingerprints each client's TLS handshake: a coarse, stable hash of the cipher suites, groups, point formats, ALPN, signature schemes, and versions the client offers, with GREASE filtered out. Automated stacks (Go's `net/http`, Python, curl) present different TLS characteristics than real browsers, so the fingerprint is a signal that survives a client lying in its User-Agent.
+When Henbane terminates TLS itself (set `tls.cert`/`tls.key`), it fingerprints each client's TLS handshake as a **JA4** string, the industry-standard format. JA4 needs the exact list of TLS extensions, which Go's standard library hides, so the capture listener buffers the opening ClientHello and recovers them; everything else (ciphers, ALPN, signature schemes, versions) comes from what Go exposes, GREASE filtered out. Automated stacks (Go's `net/http`, Python, curl) present a different JA4 than real browsers, so it is a signal that survives a client lying in its User-Agent.
 
-- The fingerprint appears in the decision log as `tls_fp`. Watch your traffic, then block the stacks you've confirmed are bots via `deny.tls_fingerprints` (a `403`, like the IP and UA denylists).
-- The fingerprint is *coarse*, shared by every client using the same TLS library, so list only fingerprints you've confirmed, exactly as with CIDR and UA denylists.
-- It is empty when a proxy or CDN terminates TLS in front of Henbane. This is a direct-exposure feature.
-- A full JA3 is not possible from Go's standard library, which hides the raw ClientHello.
+- The fingerprint appears in the decision log as `tls_fp`, a JA4 string like `t13d1516h2_8daaf6152771_e5627efa2ab1`. Because it is standard JA4, you can list fingerprints you confirm are bots, or paste JA4 values from a threat feed, in `deny.tls_fingerprints` for a `403`, like the IP and UA denylists.
+- JA4 is shared by every client on the same TLS library, and is forgeable by a dedicated impersonation toolkit (uTLS, curl-impersonate), so it feeds the fusion score and should be listed only when you have confirmed it, exactly as with CIDR and UA denylists.
+- It is empty when a proxy or CDN terminates TLS in front of Henbane; this is a direct-exposure feature. If a ClientHello cannot be parsed (a fragmented or malformed record), Henbane falls back to a coarse GREASE-filtered hash, so a fingerprint is always present.
 
 ## HTTP/2 fingerprinting (optional module)
 
@@ -518,7 +517,7 @@ Each item is an end-to-end, tested slice. Checked items ship in the current buil
 - [x] Poison: babble, splice, article, and canary generators fill the maze
 - [x] Proof-of-work challenge gate: SHA-256 solver in a Web Worker (off-thread, flat-out), HMAC session token, themeable page, no-JS fallback
 - [x] Browser-hint and request-rate (velocity) suspicion signals
-- [x] TLS client fingerprinting (coarse, logged as `tls_fp`; `deny.tls_fingerprints`)
+- [x] JA4 TLS client fingerprinting (logged as `tls_fp`; `deny.tls_fingerprints`)
 - [x] Scoring / signal fusion: weak signals accumulate into a confident verdict (`scoring`), with browser-consistency (header and HTTP-version) checks
 - [x] HTTP/2 Akamai frame fingerprint: optional `h2capture/` module (keeps the zero-dep core clean), feeds browser-consistency scoring
 - [x] Verified good bots: Web Bot Auth (RFC 9421 signed agents) plus reverse-DNS search crawlers (Googlebot/Bingbot), with spoofer detection

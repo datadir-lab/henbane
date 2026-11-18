@@ -1,14 +1,16 @@
-// Package tlsfp computes a coarse, stable TLS client fingerprint from what Go's
-// crypto/tls exposes in a ClientHelloInfo, and carries it from the handshake to
-// the HTTP request on the same connection.
+// Package tlsfp computes a stable TLS client fingerprint during the handshake and
+// carries it to the HTTP request on the same connection.
 //
-// It is a "poor-man's JA3": the standard library hides the raw ClientHello, so
-// this cannot reproduce a full JA3 (exact extension list and order), but the
-// cipher suites, groups, point formats, ALPN, signature schemes, and versions it
-// does expose still separate real browser TLS stacks from automated clients
-// (Go, Python, curl, ...). GREASE values are filtered so a given client's
-// fingerprint stays stable run to run. It only applies when Henbane terminates
-// TLS itself; behind a TLS-terminating proxy or CDN the fingerprint is empty.
+// It produces a FoxIO JA4 fingerprint, the industry-standard format, so the value is
+// comparable with other tools' output (an operator can denylist a JA4 string from a
+// threat feed). The standard library hides the raw ClientHello, which JA4 needs for the
+// exact extension list, so the fingerprint-capturing listener buffers the opening
+// ClientHello and clienthello.go recovers the extension types from it; everything else
+// (ciphers, ALPN, signature schemes, versions) comes from the ClientHelloInfo. When the
+// raw ClientHello cannot be parsed (a fragmented or malformed record), it falls back to
+// a coarse GREASE-filtered hash of the ClientHelloInfo fields, so there is always a
+// stable fingerprint. Either way it is captured only when Henbane terminates TLS itself;
+// behind a TLS-terminating proxy or CDN the fingerprint is empty.
 package tlsfp
 
 import (
@@ -82,9 +84,32 @@ type ctxKey struct{}
 // connection goroutine, so no synchronization is needed.
 type holder struct{ fp string }
 
+// maxCapture bounds how many bytes of the opening handshake are buffered for JA4
+// parsing. A ClientHello is far smaller; the cap keeps a hostile oversized record from
+// growing the buffer without bound.
+const maxCapture = 16 << 10
+
 type fpConn struct {
 	net.Conn
-	h *holder
+	h           *holder
+	capture     []byte // the ClientHello bytes, buffered until the fingerprint is computed
+	captureDone bool
+}
+
+// Read passes bytes through unchanged (the return value is never modified, so the TLS
+// handshake is unaffected) while buffering the opening ClientHello for JA4 parsing. It
+// runs on the connection's own goroutine, the same one that reads the fingerprint, so
+// no synchronization is needed.
+func (c *fpConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 && !c.captureDone && len(c.capture) < maxCapture {
+		if room := maxCapture - len(c.capture); n > room {
+			c.capture = append(c.capture, p[:room]...)
+		} else {
+			c.capture = append(c.capture, p[:n]...)
+		}
+	}
+	return n, err
 }
 
 type listener struct{ net.Listener }
@@ -107,7 +132,19 @@ func DecorateConfig(cfg *tls.Config) *tls.Config {
 	prev := cfg.GetConfigForClient
 	cfg.GetConfigForClient = func(chi *tls.ClientHelloInfo) (*tls.Config, error) {
 		if fc, ok := chi.Conn.(*fpConn); ok {
-			fc.h.fp = Fingerprint(chi)
+			// The ClientHello has now been read; stop buffering and compute the JA4
+			// fingerprint from the captured bytes, falling back to the coarse
+			// fingerprint if the raw ClientHello could not be parsed.
+			fc.captureDone = true
+			fp := ""
+			if exts, parsed := parseClientHelloExtensions(fc.capture); parsed {
+				fp = JA4(chi, exts)
+			}
+			if fp == "" {
+				fp = Fingerprint(chi)
+			}
+			fc.h.fp = fp
+			fc.capture = nil // release the buffer
 		}
 		if prev != nil {
 			return prev(chi)
