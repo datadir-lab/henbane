@@ -599,3 +599,14 @@ func TestParseHostingIPValidation(t *testing.T) {
 		t.Error("negative hosting_ip.weight must be rejected")
 	}
 }
+
+func TestParseRobotsAIUsageValidation(t *testing.T) {
+	// ai_usage is emitted in robots.txt, so enabling it without serve is inert: fail loud.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nrobots:\n  ai_usage:\n    train: false\n"); err == nil {
+		t.Error("robots.ai_usage without robots.serve must be rejected")
+	}
+	// With serve it is accepted.
+	if _, err := parsePoison(t, "upstream: \"http://a:1\"\nrobots:\n  serve: true\n  ai_usage:\n    train: false\n    search: true\n"); err != nil {
+		t.Errorf("robots.ai_usage with serve should be accepted: %v", err)
+	}
+}
