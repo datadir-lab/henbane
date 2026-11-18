@@ -56,7 +56,38 @@ func newHandler(cfg config.Config, logger *slog.Logger, fail2banW io.Writer, met
 	if cfg.Robots.Serve {
 		handler = withRobots(buildRobots(cfg), handler)
 	}
+	if v := buildContentUsage(cfg); v != "" {
+		handler = withContentUsage(v, handler)
+	}
 	return handler, fed.Background, nil
+}
+
+// buildContentUsage renders the IETF AIPREF Content-Usage HTTP response header from the
+// operator's ai_usage preferences, or "" when none are set. The header attaches the
+// preference to the actual content response (AIPREF's primary mechanism), complementing
+// the robots.txt directives. AIPREF's vocabulary covers training and search; the
+// Cloudflare-only ai-input token has no header form.
+func buildContentUsage(cfg config.Config) string {
+	u := cfg.Robots.AIUsage
+	if u == nil {
+		return ""
+	}
+	var parts []string
+	if u.Train != nil {
+		parts = append(parts, "train-ai="+yN(*u.Train))
+	}
+	if u.Search != nil {
+		parts = append(parts, "search="+yN(*u.Search))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// withContentUsage sets the Content-Usage header on every response.
+func withContentUsage(value string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Usage", value)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // buildServeHandler selects the form factor: a ForwardAuth/auth_request sidecar

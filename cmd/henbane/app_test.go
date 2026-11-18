@@ -809,6 +809,10 @@ func TestRobotsTxtAIUsageSignals(t *testing.T) {
 
 	resp, _ := http.Get(front.URL + "/robots.txt")
 	body, _ := io.ReadAll(resp.Body)
+	// The IETF AIPREF Content-Usage response header attaches the preference per-response.
+	if h := resp.Header.Get("Content-Usage"); h != "train-ai=n, search=y" {
+		t.Errorf("Content-Usage header = %q, want \"train-ai=n, search=y\"", h)
+	}
 	resp.Body.Close()
 	// Both the Cloudflare Content-signal and the IETF AIPREF Content-Usage directives.
 	for _, want := range []string{

@@ -63,11 +63,21 @@ fetched content I marked `ai-train=no`", a provable violation. Enforcement remai
 it always was in Henbane: the honeypot confirmation, the tarpit, and the poison. Gating
 the poison explicitly on that provable violation is a natural follow-up.
 
+## HTTP response header
+
+AIPREF's primary mechanism is a `Content-Usage` HTTP response header that attaches the
+preference to the actual content response, not just the site-wide robots.txt. The
+standalone binary emits it too, from the same `ai_usage` config, on every response:
+
+```
+Content-Usage: train-ai=n, search=y
+```
+
+AIPREF's vocabulary covers training and search, so the Cloudflare-only `ai-input` token
+appears only in the robots.txt `Content-signal` line, not the header.
+
 ## Scope / non-goals
 
-- robots.txt directives only in this slice. The AIPREF `Content-Usage` **HTTP response
-  header** (per-response, applies to the actual content) is a straightforward follow-up
-  on the proxy's response path.
 - No change to enforcement. The signals describe intent; the deterrent enforces.
 
 ## Testing
