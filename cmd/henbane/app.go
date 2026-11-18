@@ -89,6 +89,9 @@ func buildServeHandler(cfg config.Config, comps assembly.Components, sinks []por
 func buildRobots(cfg config.Config) string {
 	var b strings.Builder
 	b.WriteString("User-agent: *\n")
+	if u := cfg.Robots.AIUsage; u != nil {
+		writeAIUsage(&b, u)
+	}
 	if cfg.Honeypot.Enabled && cfg.Honeypot.Path != "" {
 		b.WriteString("Disallow: " + cfg.Honeypot.Path + "\n")
 	}
@@ -96,6 +99,47 @@ func buildRobots(cfg config.Config) string {
 		b.WriteString("Disallow: " + p + "\n")
 	}
 	return b.String()
+}
+
+// writeAIUsage emits the operator's AI-usage preferences in both the Cloudflare
+// Content-signal syntax (search=yes, ai-train=no) and the IETF AIPREF Content-Usage
+// syntax (train-ai=n, y/n values). The two are independent ecosystems, so emitting both
+// reaches the widest set of crawlers. Unset preferences are omitted from both.
+func writeAIUsage(b *strings.Builder, u *config.AIUsage) {
+	var cf []string
+	if u.Search != nil {
+		cf = append(cf, "search="+yesNo(*u.Search))
+	}
+	if u.AIInput != nil {
+		cf = append(cf, "ai-input="+yesNo(*u.AIInput))
+	}
+	if u.Train != nil {
+		cf = append(cf, "ai-train="+yesNo(*u.Train))
+	}
+	if len(cf) > 0 {
+		b.WriteString("Content-signal: " + strings.Join(cf, ", ") + "\n")
+	}
+	// AIPREF's vocabulary covers training and search (not a live-input token), one line each.
+	if u.Train != nil {
+		b.WriteString("Content-Usage: train-ai=" + yN(*u.Train) + "\n")
+	}
+	if u.Search != nil {
+		b.WriteString("Content-Usage: search=" + yN(*u.Search) + "\n")
+	}
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+func yN(b bool) string {
+	if b {
+		return "y"
+	}
+	return "n"
 }
 
 // withRobots serves body at /robots.txt and delegates everything else to next.

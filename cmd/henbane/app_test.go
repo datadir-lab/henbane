@@ -788,6 +788,40 @@ func TestRobotsTxtServedWithTrapDisallow(t *testing.T) {
 	}
 }
 
+func TestRobotsTxtAIUsageSignals(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	defer upstream.Close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	no, yes := false, true
+	cfg := config.Config{
+		Upstream: upstream.URL,
+		Robots: config.Robots{
+			Serve:   true,
+			AIUsage: &config.AIUsage{Train: &no, AIInput: &no, Search: &yes},
+		},
+	}
+	h, _, err := newHandler(cfg, logger, nil, nil)
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	front := httptest.NewServer(h)
+	defer front.Close()
+
+	resp, _ := http.Get(front.URL + "/robots.txt")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	// Both the Cloudflare Content-signal and the IETF AIPREF Content-Usage directives.
+	for _, want := range []string{
+		"Content-signal: search=yes, ai-input=no, ai-train=no",
+		"Content-Usage: train-ai=n",
+		"Content-Usage: search=y",
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("robots.txt missing %q; got:\n%s", want, string(body))
+		}
+	}
+}
+
 func TestRobotsTxtNotServedWhenDisabled(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "UPSTREAM-ROBOTS")

@@ -65,6 +65,20 @@ type Canary struct {
 type Robots struct {
 	Serve    bool     `yaml:"serve"`    // if true, Henbane serves /robots.txt
 	Disallow []string `yaml:"disallow"` // extra paths to Disallow (operator's own)
+	AIUsage  *AIUsage `yaml:"ai_usage"` // optional machine-readable AI-usage preferences
+}
+
+// AIUsage declares machine-readable AI-usage preferences for the site's content. When
+// set, Henbane emits both the IETF AIPREF `Content-Usage` and the Cloudflare
+// `Content-signal` directives in robots.txt (different ecosystems, same intent), so a
+// crawler that then ignores them is a provable violator. Each field is a pointer: unset
+// (nil) omits that signal; true/false emits allow/disallow. A preference is advisory,
+// not enforcement, but it is the standard way to state intent, and it strengthens the
+// justification for tarpitting a confirmed AI crawler that disregards it.
+type AIUsage struct {
+	Train   *bool `yaml:"train"`    // use for AI/foundation-model training (AIPREF train-ai, CF ai-train)
+	AIInput *bool `yaml:"ai_input"` // use as live AI input, e.g. RAG answers (CF ai-input)
+	Search  *bool `yaml:"search"`   // use for search indexing (AIPREF search, CF search)
 }
 
 // Bomb configures the decompression-bomb poison response. Off by default; only
@@ -462,6 +476,11 @@ func Validate(cfg Config) error {
 				return fmt.Errorf("robots.disallow entry %q must be an absolute path", p)
 			}
 		}
+	}
+	// The AI-usage preferences are emitted in robots.txt, so they are inert without it.
+	// Fail loud rather than let an operator believe they declared a preference.
+	if cfg.Robots.AIUsage != nil && !cfg.Robots.Serve {
+		return fmt.Errorf("robots.ai_usage requires robots.serve (the preferences are emitted in robots.txt)")
 	}
 	if cfg.Velocity.Enabled {
 		tier := cfg.Velocity.Tier

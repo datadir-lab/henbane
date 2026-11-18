@@ -42,7 +42,7 @@ The split is deliberate:
 - A denylisted actor is banished (`403` and fail2ban).
 - A honeypot-confirmed crawler is detained instead. The aim is to keep it crawling the maze and spending its own budget, so banning it would be counterproductive.
 
-With `robots.serve` on, Henbane publishes a `/robots.txt` that `Disallow`s the honeypot trap. Well-behaved crawlers avoid it, so any client that fetches it is provably ignoring `robots.txt` and gets confirmed as a bad bot.
+With `robots.serve` on, Henbane publishes a `/robots.txt` that `Disallow`s the honeypot trap. Well-behaved crawlers avoid it, so any client that fetches it is provably ignoring `robots.txt` and gets confirmed as a bad bot. Set `robots.ai_usage` and Henbane also emits machine-readable AI-usage preferences in both the IETF AIPREF (`Content-Usage`) and Cloudflare Content-Signals (`Content-signal`) syntaxes, the standard way to state what your content may be used for (training, live AI answers, search). These are preferences, not enforcement, but a confirmed AI crawler that ignores them is a *provable* violator, not just a visitor.
 
 Two optional suspicion signals feed the `Suspect` tier:
 
@@ -209,6 +209,10 @@ robots:
   serve: false                   # if true, Henbane serves /robots.txt
   disallow:                      # extra paths to Disallow (the honeypot trap is auto-added)
     - "/private"
+  ai_usage:                      # optional machine-readable AI-usage preferences
+    train: false                 # no foundation-model training on this content
+    ai_input: false              # no live AI input (RAG / answer engines)
+    search: true                 # search indexing is fine
 
 velocity:
   enabled: false                 # rate-based detector; off by default
