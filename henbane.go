@@ -46,12 +46,31 @@ type Henbane struct {
 }
 
 type options struct {
-	logger    *slog.Logger
-	fail2banW io.Writer
+	logger               *slog.Logger
+	fail2banW            io.Writer
+	challenger           proxy.Challenger
+	challengerVerifyPath string
 }
 
 // Option configures a Henbane instance.
 type Option func(*options)
+
+// Challenger is the challenge-gate interface: it reports whether a request already holds
+// a valid pass token, serves the challenge, and handles the verify POST. It is the seam
+// the optional device-fingerprinting build (jsprobe) plugs into to replace the built-in
+// proof-of-work challenge. Supplying one is an embedder choice; the core ships none.
+type Challenger = proxy.Challenger
+
+// WithChallenger replaces Henbane's built-in proof-of-work challenge with c, whose verify
+// endpoint is served at verifyPath. A Suspect verdict is then handed to c instead of the
+// PoW gate, so the separate jsprobe module can gate suspect clients behind a device or
+// behavioural probe without the core ever depending on it.
+func WithChallenger(c Challenger, verifyPath string) Option {
+	return func(o *options) {
+		o.challenger = c
+		o.challengerVerifyPath = verifyPath
+	}
+}
 
 // WithLogger routes Henbane's decision events to l. Without it, events are not
 // logged (the Prometheus counters from MetricsHandler still record every one).
@@ -105,6 +124,12 @@ func New(cfg Config, opts ...Option) (*Henbane, error) {
 	comps, err := assembly.Build(cfg, extra...)
 	if err != nil {
 		return nil, err
+	}
+	// An embedder-supplied challenger (the jsprobe device probe) replaces the built-in
+	// PoW gate for Suspect verdicts.
+	if o.challenger != nil {
+		comps.PoW.Challenger = o.challenger
+		comps.PoW.VerifyPath = o.challengerVerifyPath
 	}
 	reg := metrics.New()
 	sinks := []ports.Sink{sink.NewSlogSink(o.logger), reg}
